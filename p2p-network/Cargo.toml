@@ -1,0 +1,19 @@
+[package]
+name = "p2p-network"
+version = "0.1.0"
+edition = "2021"
+
+
+[dependencies]
+async-std = { version = "1.11.0", features = ["attributes"]} 
+futures = "0.3.21"
+libp2p = { version = "0.44.0", default-features = false, features = [
+    "dns-async-std",
+    "gossipsub",
+    "mdns",
+    "mplex",
+    "noise",
+    "tcp-async-io",
+    "websocket",
+    "yamux"
+]}
