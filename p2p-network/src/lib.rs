@@ -3,8 +3,9 @@ mod network;
 use futures::channel::mpsc;
 use network::Network;
 
-struct NetworkComponent;
-trait NetworkLayer {
+pub struct NetworkComponent;
+
+pub trait NetworkLayer {
     fn run(out_message_rx: mpsc::Receiver<Vec<u8>>, in_message_tx: mpsc::Sender<Vec<u8>>);
 }
 
