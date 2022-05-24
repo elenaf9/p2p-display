@@ -3,7 +3,6 @@ name = "p2p-network"
 version = "0.1.0"
 edition = "2021"
 
-
 [dependencies]
 async-std = { version = "1.11.0", features = ["attributes"]} 
 futures = "0.3.21"

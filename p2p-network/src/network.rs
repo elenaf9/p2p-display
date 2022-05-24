@@ -1,15 +1,15 @@
-use std::collections::HashSet;
-use futures::{StreamExt, select, AsyncBufReadExt};
+use futures::{channel::mpsc, select, SinkExt, StreamExt};
 use libp2p::{
     gossipsub::{
-        Gossipsub, GossipsubConfig, GossipsubEvent, GossipsubMessage, MessageAuthenticity, IdentTopic,
+        Gossipsub, GossipsubConfig, GossipsubEvent, GossipsubMessage, IdentTopic,
+        MessageAuthenticity,
     },
     identity,
     mdns::{Mdns, MdnsConfig, MdnsEvent},
     swarm::SwarmEvent,
     Multiaddr, NetworkBehaviour, PeerId, Swarm,
 };
-use async_std::io;
+use std::collections::HashSet;
 
 // Fixed topic for the first PoC.
 const TOPIC: &str = "topic";
@@ -20,13 +20,18 @@ pub struct Network {
     swarm: Swarm<Behaviour>,
     // Topic that we are subscribing to.
     // Eventually this should be a list of topics.
-    topic: IdentTopic
+    topic: IdentTopic,
+
+    send_message_rx: mpsc::Receiver<Vec<u8>>,
+    inbound_message_tx: mpsc::Sender<Vec<u8>>,
 }
 
 impl Network {
-
     // Create a new instance of `Network.`
-    pub async fn new() -> Result<Self, Box<dyn std::error::Error>> {
+    pub async fn new(
+        send_message_rx: mpsc::Receiver<Vec<u8>>,
+        inbound_message_tx: mpsc::Sender<Vec<u8>>,
+    ) -> Self {
         // Authentication keypair.
         // Used to derive a unique PeerId and the keypair for encryption on the
         // Transport layer with the Noise protocol (https://noiseprotocol.org/noise.html).
@@ -39,11 +44,13 @@ impl Network {
         //
         // We use an existing transport from libp2p that can be used for testing/
         // Supports TCP, websockets and DNS name resolution
-        let transport = libp2p::development_transport(keypair.clone()).await?;
+        let transport = libp2p::development_transport(keypair.clone())
+            .await
+            .unwrap();
 
         // Create a behaviour. The behaviour controls **what** we sent to the remote.
         // We use a custom behehaviour (see `Behaviour` docs).
-        let behaviour = Behaviour::new(keypair).await?;
+        let behaviour = Behaviour::new(keypair).await.unwrap();
 
         // The swarm is libp2p single entry point that controls all network interaction.
         // It wraps the transport and the behaviour.
@@ -52,37 +59,39 @@ impl Network {
         // Dummy topic for testing
         let topic = IdentTopic::new(TOPIC);
 
-        let network = Network { swarm, topic };
-
         // Return `Self`.
-        Ok(network)
+        Network {
+            swarm,
+            topic,
+            inbound_message_tx,
+            send_message_rx,
+        }
     }
 
     // Start listening on the network on all interfaces (localhost, local network, etc.)
-    pub fn start_listening(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-
+    pub fn start_listening(&mut self) {
         // Create an unspecified address (all zeroes).
         // This causes us to listen on all network interfaces on an OS-assigned address.
-        let address: Multiaddr = "/ip4/0.0.0.0/tcp/0".parse()?;
+        let address: Multiaddr = "/ip4/0.0.0.0/tcp/0".parse().unwrap();
 
         // Tell the swarm to start listening.
-        self.swarm.listen_on(address)?;
-        Ok(())
+        self.swarm.listen_on(address).unwrap();
     }
 
     // Subscribe to our dummy topic.
-    pub fn subscribe(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        self.swarm.behaviour_mut().gossipsub.subscribe(&self.topic)?;
-        Ok(())
+    pub fn subscribe(&mut self) {
+        self.swarm
+            .behaviour_mut()
+            .gossipsub
+            .subscribe(&self.topic)
+            .unwrap();
     }
 
     // Run an eternal loop that polls the swarm and for user input.
     //
-    // The libp2p swarm is a state machine that needs to be polled continously 
+    // The libp2p swarm is a state machine that needs to be polled continously
     // (e.g. via swarm.select_next_some()). If we don't poll it, nothing will happen.
-    pub async fn run(mut self) -> Result<(), Box<dyn std::error::Error>> {
-        // Create reader for stdin
-        let mut stdin = io::BufReader::new(io::stdin()).lines().fuse();
+    pub async fn run(mut self) {
         loop {
             // `Select` is a macro that simultaneously polls items.
             select! {
@@ -90,82 +99,74 @@ impl Network {
                 // Even if we would not care about the event, we have to poll the
                 // swarm for it to make any progress.
                 event = self.swarm.select_next_some() => {
-                    self.handle_swarm_event(event)?;
+                    self.handle_swarm_event(event).await;
                 }
-                // Poll for user input from stdin.
-                line = stdin.select_next_some() => {
-                    let input = line.expect("Stdin not to close");
-                    self.handle_user_input(input.as_bytes())?;
+                message = self.send_message_rx.select_next_some() => {
+                    self.handle_user_input(&message);
                 }
             }
-
         }
     }
 
     // Handle input from the user.
     // This publishes the input as a message in the gossibsub network
-    fn handle_user_input(&mut self, input: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
-        self.swarm.behaviour_mut().gossipsub.publish(self.topic.clone(), input)?;
-        Ok(())
+    fn handle_user_input(&mut self, input: &[u8]) {
+        self.swarm
+            .behaviour_mut()
+            .gossipsub
+            .publish(self.topic.clone(), input)
+            .unwrap();
     }
 
-    // Handle an event on our swarm. 
+    // Handle an event on our swarm.
     // This events could be about connections (e.g. connected/ disconnected to a peer), listeners
     // (e.g. new/ expired listening address) or events from our `Behaviour`.
-    fn handle_swarm_event<E>(&mut self, event: SwarmEvent<Event, E>) -> Result<(), Box<dyn std::error::Error>> {
+    async fn handle_swarm_event<E>(&mut self, event: SwarmEvent<Event, E>) {
         match event {
-            SwarmEvent::ConnectionEstablished {peer_id, ..} => {
+            SwarmEvent::ConnectionEstablished { peer_id, .. } => {
                 println!("Connected to {:?}", peer_id);
             }
-            SwarmEvent::NewListenAddr {address, ..} => {
+            SwarmEvent::NewListenAddr { address, .. } => {
                 println!("Listening on {:?}", address);
             }
             // Event issued my the Mdns protocol behaviour.
             SwarmEvent::Behaviour(Event::Mdns(ev)) => {
-                self.handle_mdns_event(ev)?;
+                self.handle_mdns_event(ev);
             }
             // Event issued my the Gossibsub protocol behaviour.
             SwarmEvent::Behaviour(Event::Gossipsub(ev)) => {
-                self.handle_gossisub_event(ev)?;
+                self.handle_gossisub_event(ev).await;
             }
             _ => {}
         }
-        Ok(())
     }
 
     // Handle event created by our inner MDNS behaviour.
-    fn handle_mdns_event(&mut self, event: MdnsEvent) -> Result<(), Box<dyn std::error::Error>> {
+    fn handle_mdns_event(&mut self, event: MdnsEvent) {
         if let MdnsEvent::Discovered(discovered) = event {
-            let peers: HashSet<PeerId>= discovered.map(|(peer, _addr)| peer).collect();
+            let peers: HashSet<PeerId> = discovered.map(|(peer, _addr)| peer).collect();
             // We discovered new peers in the local network.
             // Dial each peer. Once the connection is established the gossibsub protocol will make
-            // the peers exchange what topics they are subscribed to. 
+            // the peers exchange what topics they are subscribed to.
             // When publishing to a topic, we thus then know whom to send the message to.
             for peer in peers {
-                self.swarm.dial(peer)?;
+                self.swarm.dial(peer).unwrap();
             }
         }
-        Ok(())
     }
 
     // Handle event created by our inner GossibSub behaviour.
-    fn handle_gossisub_event(
-        &mut self,
-        event: GossipsubEvent,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        match event {
-            GossipsubEvent::Message {
-                message: GossipsubMessage { source, data, .. },
-                ..
-            } => {
-                // We received a message that was published by a remote peer to a topic
-                // we are subscribing to.
-                let message = String::from_utf8(data.into())?;
-                println!("{:?}:\n{:?}", source, message)
-            }
-            _ => {}
+    async fn handle_gossisub_event(&mut self, event: GossipsubEvent) {
+        if let GossipsubEvent::Message {
+            message: GossipsubMessage { data, .. },
+            ..
+        } = event
+        {
+            // We received a message that was published by a remote peer to a topic
+            // we are subscribing to.
+            let message = String::from_utf8(data).unwrap();
+            self.inbound_message_tx.send(message.into()).await.unwrap();
         }
-        Ok(())
     }
 }
 
@@ -181,7 +182,7 @@ impl Network {
 // We use the `#[derive(NetworkBehaviour)]` annotation to wrap two existing
 // behaviours into our own custom one.
 // Events from a network behaviour are returned when polling the swarm
-// via `SwarmEvent::Behaviour`. Because the two wrapped behaviours return 
+// via `SwarmEvent::Behaviour`. Because the two wrapped behaviours return
 // different events (GossipSubEvent / MdnsEvent), we create an enum `Event`
 // (see below) that wraps the two possible events.
 // With `#[behaviour(out_event = "Event")]` we specify that our own `Event`
@@ -197,14 +198,14 @@ struct Behaviour {
 }
 
 impl Behaviour {
-
     // Create a new instance of a `Behaviour`.
     async fn new(keypair: identity::Keypair) -> Result<Self, Box<dyn std::error::Error>> {
         let gossipsub = Gossipsub::new(
             MessageAuthenticity::Signed(keypair),
             GossipsubConfig::default(),
-        )?;
-        let mdns = Mdns::new(MdnsConfig::default()).await?;
+        )
+        .unwrap();
+        let mdns = Mdns::new(MdnsConfig::default()).await.unwrap();
         let behaviour = Behaviour { gossipsub, mdns };
         Ok(behaviour)
     }
