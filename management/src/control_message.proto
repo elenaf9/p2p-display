@@ -1,0 +1,15 @@
+syntax = "proto3";
+
+package management.control_message;
+
+message ControlMessage {
+    enum MessageType {
+        DISPLAY_MESSAGE = 0;
+    }
+
+    MessageType messageType = 1;
+    optional string text = 2;
+
+    string test = 42;
+}
+
