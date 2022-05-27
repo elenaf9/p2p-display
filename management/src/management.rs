@@ -9,11 +9,12 @@ use p2p_network::NetworkComponent;
 use p2p_network::NetworkLayer;
 use prost::bytes::Bytes;
 use prost::Message;
-use libc::char;
+//use std::ffi::CString;
+
 
 //#[link(name = "toDisplay")]
 extern {
-    fn toDisplay(message: char[]);
+    fn toDisplay(message: String);
 }
 pub mod message {
     include!(concat!(env!("OUT_DIR"), "/management.control_message.rs"));
@@ -105,7 +106,9 @@ impl Management {
 }
 
 fn testing_display_show(data: String) {
-    println!("[testing] display_show: {:?}", data);
+    unsafe {
+        toDisplay(data);
+    }
 }
 
 #[async_std::main]
