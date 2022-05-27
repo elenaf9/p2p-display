@@ -6,11 +6,12 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-async-std = { version = "1.11.0", features = ["attributes"]} 
+async-std = { version = "1.11.0", features = ["attributes"]}
 prost = "0.10"
 base64 = "0.13.0"
 futures = "0.3.21"
 p2p-network = { version = "0.1.0", path = "../p2p-network"}
+libc = "0.2.0"
 
 [[bin]]
 name = "management"
@@ -18,3 +19,4 @@ path = "src/management.rs"
 
 [build-dependencies]
 prost-build = { version = "0.10" }
+cc = "1.0"

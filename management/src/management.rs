@@ -9,7 +9,12 @@ use p2p_network::NetworkComponent;
 use p2p_network::NetworkLayer;
 use prost::bytes::Bytes;
 use prost::Message;
+use libc::char;
 
+//#[link(name = "toDisplay")]
+extern {
+    fn toDisplay(message: char[]);
+}
 pub mod message {
     include!(concat!(env!("OUT_DIR"), "/management.control_message.rs"));
 }
