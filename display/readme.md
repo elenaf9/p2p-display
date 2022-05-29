@@ -59,10 +59,6 @@ sudo make check
 ```console
 sudo make install
 ```
-## Neue Binäry erstellen
-```console
-make
-```
 
 ## Notes
 
