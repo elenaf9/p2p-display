@@ -1,8 +1,11 @@
 use crate::message::control_message::MessageType;
 use crate::message::ControlMessage;
+use async_std::io;
 use futures::channel::mpsc;
 use futures::channel::mpsc::Receiver;
 use futures::channel::mpsc::Sender;
+use futures::select;
+use futures::AsyncBufReadExt;
 use futures::SinkExt;
 use futures::StreamExt;
 use p2p_network::NetworkComponent;
@@ -45,10 +48,31 @@ impl Management {
     }
 
     pub async fn run(mut self) {
+        let mut stdin = io::BufReader::new(io::stdin()).lines().fuse();
         loop {
-            let next = self.recv_msg_rx.select_next_some().await;
-            self.network_receive(&next).await;
+            // `Select` is a macro that simultaneously polls items.
+            select! {
+                // Poll the swarm for events.
+                // Even if we would not care about the event, we have to poll the
+                // swarm for it to make any progress.
+                event = self.recv_msg_rx.select_next_some() => {
+                    self.network_receive(&event).await;
+                }
+                // Poll for user input from stdin.
+                line = stdin.select_next_some() => {
+                    let input = line.expect("Stdin not to close");
+                    self.handle_user_input(input).await;
+                }
+            }
         }
+    }
+
+    pub async fn handle_user_input(&mut self, msg: String) {
+        let msg = ControlMessage {
+            message_type: MessageType::DisplayMessage as i32,
+            text: Some(msg.to_string()),
+        };
+        self.send(msg).await;
     }
 
     /**
@@ -86,14 +110,6 @@ impl Management {
     async fn _handle_message(&mut self, msg: ControlMessage) {
         println!("[Management] Got message: {:?}", msg);
 
-        if msg.test == "ping" {
-            self.send(ControlMessage {
-                test: "pong".to_string(),
-                ..Default::default()
-            })
-            .await;
-        }
-
         match MessageType::from_i32(msg.message_type) {
             Some(MessageType::DisplayMessage) => {
                 (self.display_show)(msg.text.unwrap());
@@ -113,14 +129,8 @@ fn testing_display_show(data: String) {
 
 #[async_std::main]
 async fn main() {
-    let mut mgmt = Management::new::<NetworkComponent>(testing_display_show);
-    let msg = ControlMessage {
-        test: "ping".into(),
-        message_type: MessageType::DisplayMessage as i32,
-        text: Some("Hello world!".to_string()),
-    };
+    let mgmt = Management::new::<NetworkComponent>(testing_display_show);
 
-    mgmt._handle_message(msg).await;
     mgmt.run().await;
     // mgmt.receive("CgRwb25n".into());
 }
