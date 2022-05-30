@@ -164,8 +164,7 @@ impl Network {
         {
             // We received a message that was published by a remote peer to a topic
             // we are subscribing to.
-            let message = String::from_utf8(data).unwrap();
-            self.inbound_message_tx.send(message.into()).await.unwrap();
+            self.inbound_message_tx.send(data).await.unwrap();
         }
     }
 }
