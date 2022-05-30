@@ -14,9 +14,9 @@ use prost::bytes::Bytes;
 use prost::Message;
 //use std::ffi::CString;
 
-
 //#[link(name = "toDisplay")]
-extern {
+#[cfg(feature = "mock_display")]
+extern "C" {
     fn toDisplay(message: String);
 }
 pub mod message {
@@ -121,10 +121,17 @@ impl Management {
     }
 }
 
+#[cfg(feature = "display")]
 fn testing_display_show(data: String) {
+    println!("[DISPLAY] Sending data to display: {:?}", data);
     unsafe {
         toDisplay(data);
     }
+}
+
+#[cfg(not(feature = "display"))]
+fn testing_display_show(data: String) {
+    println!("[DISPLAY] MOCK sending data to display: {:?}", data);
 }
 
 #[async_std::main]
