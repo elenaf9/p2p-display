@@ -102,7 +102,7 @@ impl Network {
                     self.handle_swarm_event(event).await;
                 }
                 message = self.send_message_rx.select_next_some() => {
-                    self.handle_user_input(&message);
+                    self.send_msg_to_swam(&message);
                 }
             }
         }
@@ -110,12 +110,18 @@ impl Network {
 
     // Handle input from the user.
     // This publishes the input as a message in the gossibsub network
-    fn handle_user_input(&mut self, input: &[u8]) {
-        self.swarm
+    fn send_msg_to_swam(&mut self, input: &[u8]) {
+        match self
+            .swarm
             .behaviour_mut()
             .gossipsub
             .publish(self.topic.clone(), input)
-            .unwrap();
+        {
+            Ok(_) => {}
+            Err(e) => {
+                println!("{:?}", e);
+            }
+        }
     }
 
     // Handle an event on our swarm.
