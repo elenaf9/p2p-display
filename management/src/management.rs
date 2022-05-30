@@ -70,7 +70,7 @@ impl Management {
     pub async fn handle_user_input(&mut self, msg: String) {
         let msg = ControlMessage {
             message_type: MessageType::DisplayMessage as i32,
-            text: Some(msg.to_string()),
+            text: msg.to_string(),
         };
         self.send(msg).await;
     }
@@ -112,7 +112,7 @@ impl Management {
 
         match MessageType::from_i32(msg.message_type) {
             Some(MessageType::DisplayMessage) => {
-                (self.display_show)(msg.text.unwrap());
+                (self.display_show)(msg.text);
             }
             None => {
                 println!("Could not parse message");

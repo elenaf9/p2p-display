@@ -8,6 +8,6 @@ message ControlMessage {
     }
 
     MessageType messageType = 1;
-    optional string text = 2;
+    string text = 2;
 }
 
