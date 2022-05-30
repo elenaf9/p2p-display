@@ -1,13 +1,15 @@
 use futures::{channel::mpsc, select, SinkExt, StreamExt};
 use libp2p::{
+    core,
     gossipsub::{
         Gossipsub, GossipsubConfig, GossipsubEvent, GossipsubMessage, IdentTopic,
         MessageAuthenticity,
     },
     identity,
     mdns::{Mdns, MdnsConfig, MdnsEvent},
+    mplex, noise,
     swarm::SwarmEvent,
-    Multiaddr, NetworkBehaviour, PeerId, Swarm,
+    tcp, yamux, Multiaddr, NetworkBehaviour, PeerId, Swarm, Transport,
 };
 use std::collections::HashSet;
 
@@ -41,12 +43,19 @@ impl Network {
         println!("Local PeerId: {}", local_peer_id);
 
         // Create a transport. The transport controls **how** we sent out data to the remote peer.
-        //
-        // We use an existing transport from libp2p that can be used for testing/
-        // Supports TCP, websockets and DNS name resolution
-        let transport = libp2p::development_transport(keypair.clone())
-            .await
-            .unwrap();
+        let tcp_transport = tcp::TcpConfig::new();
+        let noise_keys = noise::Keypair::<noise::X25519Spec>::new()
+            .into_authentic(&keypair)
+            .expect("Signing libp2p-noise static DH keypair failed.");
+        let transport = tcp_transport
+            .upgrade(core::upgrade::Version::V1)
+            .authenticate(noise::NoiseConfig::xx(noise_keys).into_authenticated())
+            .multiplex(core::upgrade::SelectUpgrade::new(
+                yamux::YamuxConfig::default(),
+                mplex::MplexConfig::default(),
+            ))
+            .timeout(std::time::Duration::from_secs(20))
+            .boxed();
 
         // Create a behaviour. The behaviour controls **what** we sent to the remote.
         // We use a custom behehaviour (see `Behaviour` docs).
