@@ -15,7 +15,7 @@ use prost::Message;
 //use std::ffi::CString;
 
 //#[link(name = "toDisplay")]
-#[cfg(feature = "mock_display")]
+#[cfg(feature = "display")]
 extern "C" {
     fn toDisplay(message: String);
 }
