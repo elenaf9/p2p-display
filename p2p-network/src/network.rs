@@ -171,7 +171,6 @@ impl Network {
                     println!("Connected to {:?}", peer_id);
                 } else {
                     self.swarm.ban_peer_id(peer_id);
-                    self.swarm.disconnect_peer_id(peer_id).unwrap();
                 }
             }
             SwarmEvent::NewListenAddr { address, .. } => {
