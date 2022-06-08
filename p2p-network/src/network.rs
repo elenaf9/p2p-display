@@ -22,7 +22,8 @@ const TOPIC: &str = "topic";
 pub enum Command {
     SendMessage { message: Vec<u8> },
     GetWhitelisted { tx: oneshot::Sender<Vec<PeerId>> },
-    UpdateWhiteListed { peers: Vec<PeerId> },
+    AddWhitelisted { peer: PeerId },
+    RemoveWhitelisted { peer: PeerId },
 }
 
 // Central structure of this application, that holds the swarm.
@@ -133,7 +134,14 @@ impl Network {
         match command {
             Command::SendMessage { message } => self.send_msg_to_swam(&message),
             Command::GetWhitelisted { tx } => tx.send(self.whitelisted.clone()).unwrap(),
-            Command::UpdateWhiteListed { peers } => self.whitelisted = peers,
+            Command::AddWhitelisted { peer } => {
+                self.whitelisted.push(peer);
+                self.swarm.unban_peer_id(peer)
+            }
+            Command::RemoveWhitelisted { peer } => {
+                self.whitelisted.retain(|p| p != &peer);
+                self.swarm.ban_peer_id(peer)
+            }
         }
     }
 
@@ -159,7 +167,11 @@ impl Network {
     async fn handle_swarm_event<E>(&mut self, event: SwarmEvent<Event, E>) {
         match event {
             SwarmEvent::ConnectionEstablished { peer_id, .. } => {
-                println!("Connected to {:?}", peer_id);
+                if self.whitelisted.contains(&peer_id) {
+                    println!("Connected to {:?}", peer_id);
+                } else {
+                    self.swarm.ban_peer_id(peer_id);
+                }
             }
             SwarmEvent::NewListenAddr { address, .. } => {
                 println!("Listening on {:?}", address);

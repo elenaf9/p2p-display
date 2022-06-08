@@ -21,7 +21,8 @@ pub trait NetworkLayer {
 
     async fn send_message(&mut self, message: Vec<u8>);
     async fn get_whitelisted(&mut self) -> Vec<String>;
-    async fn update_whitelisted(&mut self, peers: Vec<String>);
+    async fn add_whitelisted(&mut self, peer: String);
+    async fn remove_whitelisted(&mut self, peer: String);
 }
 
 #[async_trait]
@@ -56,13 +57,16 @@ impl NetworkLayer for NetworkComponent {
             .collect()
     }
 
-    async fn update_whitelisted(&mut self, peers: Vec<String>) {
-        let peers = peers
-            .into_iter()
-            .map(|id| PeerId::from_str(&id))
-            .collect::<Result<_, _>>()
-            .unwrap();
-        let command = Command::UpdateWhiteListed { peers };
+    async fn add_whitelisted(&mut self, peer: String) {
+        let command = Command::AddWhitelisted {
+            peer: PeerId::from_str(&peer).unwrap(),
+        };
+        self.command_tx.send(command).await.unwrap();
+    }
+    async fn remove_whitelisted(&mut self, peer: String) {
+        let command = Command::RemoveWhitelisted {
+            peer: PeerId::from_str(&peer).unwrap(),
+        };
         self.command_tx.send(command).await.unwrap();
     }
 }
