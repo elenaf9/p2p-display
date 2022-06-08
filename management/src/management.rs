@@ -1,18 +1,19 @@
 use crate::message::control_message::MessageType;
 use crate::message::ControlMessage;
+// #[cfg(feature = "display")]
+// use crate::display::toDisplay;
 use async_std::io;
 use futures::channel::mpsc;
 use futures::channel::mpsc::Receiver;
 use futures::channel::mpsc::Sender;
 use futures::select;
 use futures::AsyncBufReadExt;
-use futures::SinkExt;
 use futures::StreamExt;
 use p2p_network::NetworkComponent;
 use p2p_network::NetworkLayer;
 use prost::bytes::Bytes;
 use prost::Message;
-//use std::ffi::CString;
+
 
 //#[link(name = "toDisplay")]
 #[cfg(feature = "display")]
@@ -23,26 +24,24 @@ pub mod message {
     include!(concat!(env!("OUT_DIR"), "/management.control_message.rs"));
 }
 
-pub struct Management {
+pub struct Management<T> {
     display_show: fn(data: String),
-
-    send_msg_tx: Sender<Vec<u8>>,
     recv_msg_rx: Receiver<Vec<u8>>,
+
+    network: T,
 }
 
-impl Management {
-    pub fn new<T: NetworkLayer>(display_show: fn(data: String)) -> Self {
-        let (send_msg_tx, send_msg_rx): (Sender<Vec<u8>>, Receiver<Vec<u8>>) = mpsc::channel(0);
+impl<T: NetworkLayer> Management<T> {
+    pub fn new(display_show: fn(data: String)) -> Self {
         let (recv_msg_tx, recv_msg_rx): (Sender<Vec<u8>>, Receiver<Vec<u8>>) = mpsc::channel(0);
+
+        let network = T::init(recv_msg_tx);
 
         let m = Management {
             display_show,
-            send_msg_tx,
             recv_msg_rx,
+            network,
         };
-
-        // give channel to network;
-        T::run(send_msg_rx, recv_msg_tx);
 
         return m;
     }
@@ -104,7 +103,7 @@ impl Management {
         );
 
         // (self.network_send)(&encoded);
-        self.send_msg_tx.send(encoded.to_vec()).await.unwrap();
+        self.network.send_message(encoded.to_vec()).await;
     }
 
     async fn _handle_message(&mut self, msg: ControlMessage) {
@@ -122,10 +121,10 @@ impl Management {
 }
 
 #[cfg(feature = "display")]
-fn testing_display_show(data: String) {
+fn testing_display_show(mut data: String) {
     println!("[DISPLAY] Sending data to display: {:?}", data);
     unsafe {
-        toDisplay(data);
+        toDisplay(data.as_mut_ptr().cast());
     }
 }
 
@@ -136,8 +135,7 @@ fn testing_display_show(data: String) {
 
 #[async_std::main]
 async fn main() {
-    let mgmt = Management::new::<NetworkComponent>(testing_display_show);
+    let mgmt = Management::<NetworkComponent>::new(testing_display_show);
 
     mgmt.run().await;
-    // mgmt.receive("CgRwb25n".into());
 }

@@ -1,4 +1,7 @@
-use futures::{channel::mpsc, select, SinkExt, StreamExt};
+use futures::{
+    channel::{mpsc, oneshot},
+    select, SinkExt, StreamExt,
+};
 use libp2p::{
     core,
     gossipsub::{
@@ -16,6 +19,12 @@ use std::collections::HashSet;
 // Fixed topic for the first PoC.
 const TOPIC: &str = "topic";
 
+pub enum Command {
+    SendMessage { message: Vec<u8> },
+    GetWhitelisted { tx: oneshot::Sender<Vec<PeerId>> },
+    UpdateWhiteListed { peers: Vec<PeerId> },
+}
+
 // Central structure of this application, that holds the swarm.
 pub struct Network {
     // Libp2p swarm that manages all network interaction.
@@ -24,14 +33,16 @@ pub struct Network {
     // Eventually this should be a list of topics.
     topic: IdentTopic,
 
-    send_message_rx: mpsc::Receiver<Vec<u8>>,
+    command_rx: mpsc::Receiver<Command>,
     inbound_message_tx: mpsc::Sender<Vec<u8>>,
+
+    whitelisted: Vec<PeerId>,
 }
 
 impl Network {
     // Create a new instance of `Network.`
     pub async fn new(
-        send_message_rx: mpsc::Receiver<Vec<u8>>,
+        command_rx: mpsc::Receiver<Command>,
         inbound_message_tx: mpsc::Sender<Vec<u8>>,
     ) -> Self {
         // Authentication keypair.
@@ -73,7 +84,8 @@ impl Network {
             swarm,
             topic,
             inbound_message_tx,
-            send_message_rx,
+            command_rx,
+            whitelisted: Vec::new(),
         }
     }
 
@@ -110,10 +122,18 @@ impl Network {
                 event = self.swarm.select_next_some() => {
                     self.handle_swarm_event(event).await;
                 }
-                message = self.send_message_rx.select_next_some() => {
-                    self.send_msg_to_swam(&message);
+                command = self.command_rx.select_next_some() => {
+                    self.handle_command(command);
                 }
             }
+        }
+    }
+
+    fn handle_command(&mut self, command: Command) {
+        match command {
+            Command::SendMessage { message } => self.send_msg_to_swam(&message),
+            Command::GetWhitelisted { tx } => tx.send(self.whitelisted.clone()).unwrap(),
+            Command::UpdateWhiteListed { peers } => self.whitelisted = peers,
         }
     }
 
