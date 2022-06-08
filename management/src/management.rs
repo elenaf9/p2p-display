@@ -4,8 +4,6 @@ use crate::message::ControlMessage;
 // use crate::display::toDisplay;
 use async_std::io;
 use futures::channel::mpsc;
-use futures::channel::mpsc::Receiver;
-use futures::channel::mpsc::Sender;
 use futures::select;
 use futures::AsyncBufReadExt;
 use futures::StreamExt;
@@ -26,24 +24,22 @@ pub mod message {
 
 pub struct Management<T> {
     display_show: fn(data: String),
-    recv_msg_rx: Receiver<Vec<u8>>,
+    recv_msg_rx: mpsc::Receiver<(String, Vec<u8>)>,
 
     network: T,
 }
 
 impl<T: NetworkLayer> Management<T> {
     pub fn new(display_show: fn(data: String)) -> Self {
-        let (recv_msg_tx, recv_msg_rx): (Sender<Vec<u8>>, Receiver<Vec<u8>>) = mpsc::channel(0);
+        let (recv_msg_tx, recv_msg_rx) = mpsc::channel(0);
 
         let network = T::init(recv_msg_tx);
 
-        let m = Management {
+        Management {
             display_show,
             recv_msg_rx,
             network,
-        };
-
-        return m;
+        }
     }
 
     pub async fn run(mut self) {
@@ -54,8 +50,8 @@ impl<T: NetworkLayer> Management<T> {
                 // Poll the swarm for events.
                 // Even if we would not care about the event, we have to poll the
                 // swarm for it to make any progress.
-                event = self.recv_msg_rx.select_next_some() => {
-                    self.network_receive(&event).await;
+                (sender, message) = self.recv_msg_rx.select_next_some() => {
+                    self.network_receive(sender, &message).await;
                 }
                 // Poll for user input from stdin.
                 line = stdin.select_next_some() => {
@@ -77,15 +73,15 @@ impl<T: NetworkLayer> Management<T> {
     /**
      * Handle an incoming message as as base64-encoded string (for testing).
      */
-    pub async fn receive(&mut self, msg: String) {
+    pub async fn receive(&mut self, sender: String, msg: String) {
         let bytes = base64::decode(msg).unwrap();
-        self.network_receive(&bytes).await;
+        self.network_receive(sender, &bytes).await;
     }
 
     /**
      * Receive data from the network.
      */
-    pub async fn network_receive(&mut self, data: &[u8]) {
+    pub async fn network_receive(&mut self, _sender: String, data: &[u8]) {
         let bytes = std::boxed::Box::from(data);
         let decoded = ControlMessage::decode(Bytes::from(bytes)).unwrap();
         self._handle_message(decoded).await;
@@ -124,7 +120,7 @@ impl<T: NetworkLayer> Management<T> {
 fn testing_display_show(mut data: String) {
     println!("[DISPLAY] Sending data to display: {:?}", data);
     unsafe {
-        toDisplay(data.as_mut_ptr().cast());
+        toDisplay(data);
     }
 }
 

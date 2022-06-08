@@ -35,7 +35,7 @@ pub struct Network {
     topic: IdentTopic,
 
     command_rx: mpsc::Receiver<Command>,
-    inbound_message_tx: mpsc::Sender<Vec<u8>>,
+    inbound_message_tx: mpsc::Sender<(String, Vec<u8>)>,
 
     whitelisted: Vec<PeerId>,
 }
@@ -43,14 +43,10 @@ pub struct Network {
 impl Network {
     // Create a new instance of `Network.`
     pub async fn new(
+        keypair: identity::Keypair,
         command_rx: mpsc::Receiver<Command>,
-        inbound_message_tx: mpsc::Sender<Vec<u8>>,
+        inbound_message_tx: mpsc::Sender<(String, Vec<u8>)>,
     ) -> Self {
-        // Authentication keypair.
-        // Used to derive a unique PeerId and the keypair for encryption on the
-        // Transport layer with the Noise protocol (https://noiseprotocol.org/noise.html).
-        let keypair = identity::Keypair::generate_ed25519();
-
         let local_peer_id = PeerId::from_public_key(&keypair.public());
         println!("Local PeerId: {}", local_peer_id);
 
@@ -206,7 +202,12 @@ impl Network {
     async fn handle_gossisub_event(&mut self, event: GossipsubEvent) {
         if let GossipsubEvent::Message {
             propagation_source,
-            message: GossipsubMessage { data, source: Some(source), .. },
+            message:
+                GossipsubMessage {
+                    data,
+                    source: Some(source),
+                    ..
+                },
             ..
         } = event
         {
@@ -214,7 +215,10 @@ impl Network {
             {
                 // We received a message that was published by a remote peer to a topic
                 // we are subscribing to.
-                self.inbound_message_tx.send(data).await.unwrap();
+                self.inbound_message_tx
+                    .send((source.to_base58(), data))
+                    .await
+                    .unwrap();
             }
         }
     }
