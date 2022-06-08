@@ -171,6 +171,7 @@ impl Network {
                     println!("Connected to {:?}", peer_id);
                 } else {
                     self.swarm.ban_peer_id(peer_id);
+                    self.swarm.disconnect_peer_id(peer_id).unwrap();
                 }
             }
             SwarmEvent::NewListenAddr { address, .. } => {
@@ -205,13 +206,17 @@ impl Network {
     // Handle event created by our inner GossibSub behaviour.
     async fn handle_gossisub_event(&mut self, event: GossipsubEvent) {
         if let GossipsubEvent::Message {
-            message: GossipsubMessage { data, .. },
+            propagation_source,
+            message: GossipsubMessage { data, source: Some(source), .. },
             ..
         } = event
         {
-            // We received a message that was published by a remote peer to a topic
-            // we are subscribing to.
-            self.inbound_message_tx.send(data).await.unwrap();
+            if self.whitelisted.contains(&source) && self.whitelisted.contains(&propagation_source)
+            {
+                // We received a message that was published by a remote peer to a topic
+                // we are subscribing to.
+                self.inbound_message_tx.send(data).await.unwrap();
+            }
         }
     }
 }
