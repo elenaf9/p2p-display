@@ -15,7 +15,6 @@ prost = "0.10"
 base64 = "0.13.0"
 futures = "0.3.21"
 p2p-network = { version = "0.1.0", path = "../p2p-network"}
-libc = "0.2.0"
 
 [[bin]]
 name = "management"

@@ -61,7 +61,7 @@ void SH1106_begin()
 }
 void SH1106_clear()
 {
-    int i;
+    uint i;
     for(i = 0; i < sizeof(buffer); i++)
     {
         buffer[i] = 0;

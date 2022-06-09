@@ -15,8 +15,9 @@ use prost::Message;
 
 //#[link(name = "toDisplay")]
 #[cfg(feature = "display")]
+#[link(name = "display")]
 extern "C" {
-    fn toDisplay(message: String);
+    pub fn toDisplay(message: *mut ::std::os::raw::c_char) -> ::std::os::raw::c_int;
 }
 pub mod message {
     include!(concat!(env!("OUT_DIR"), "/management.control_message.rs"));
@@ -120,7 +121,7 @@ impl<T: NetworkLayer> Management<T> {
 fn testing_display_show(mut data: String) {
     println!("[DISPLAY] Sending data to display: {:?}", data);
     unsafe {
-        toDisplay(data);
+        toDisplay(data.as_mut_ptr().cast());
     }
 }
 

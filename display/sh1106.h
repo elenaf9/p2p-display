@@ -1,3 +1,5 @@
+#include <stdint.h>
+
 #ifndef _SH1106_H_
 #define _SH1106_H_
 
