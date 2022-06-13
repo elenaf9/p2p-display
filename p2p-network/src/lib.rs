@@ -79,6 +79,7 @@ impl NetworkLayer for NetworkComponent {
         };
         self.command_tx.send(command).await.unwrap();
     }
+
     async fn remove_whitelisted(&mut self, peer: String) {
         let command = Command::RemoveWhitelisted {
             peer: PeerId::from_str(&peer).unwrap(),

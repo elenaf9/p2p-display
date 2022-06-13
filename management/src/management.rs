@@ -3,8 +3,6 @@ use std::time;
 
 use crate::message::control_message::MessageType;
 use crate::message::ControlMessage;
-// #[cfg(feature = "display")]
-// use crate::display::toDisplay;
 use async_std::io;
 use futures::channel::mpsc;
 use futures::select;
@@ -15,7 +13,6 @@ use p2p_network::NetworkLayer;
 use prost::bytes::Bytes;
 use prost::Message;
 
-//#[link(name = "toDisplay")]
 #[cfg(feature = "display")]
 #[link(name = "display")]
 extern "C" {
@@ -69,16 +66,16 @@ impl<T: NetworkLayer> Management<T> {
     }
 
     pub async fn handle_user_input(&mut self, msg: String) {
-        if msg.starts_with("send ") {
+        if let Some(msg) = msg.strip_prefix("send ") {
             self.send(ControlMessage {
                 message_type: MessageType::DisplayMessage as i32,
-                payload: msg[5..].into(),
+                payload: msg.into(),
                 receiver: "".into(),
                 sender: self.network.local_peer_id(),
             })
             .await;
-        } else if msg.starts_with("whitelist ") {
-            let new_peer: String = msg[10..].into();
+        } else if let Some(msg) = msg.strip_prefix("whitelist ") {
+            let new_peer: String = msg.into();
             let ctrl = ControlMessage {
                 message_type: MessageType::AddWhitelistPeer as i32,
                 payload: new_peer.clone(),
@@ -101,10 +98,10 @@ impl<T: NetworkLayer> Management<T> {
                 })
                 .await;
             }
-        } else if msg.starts_with("authorize ") {
+        } else if let Some(msg) = msg.strip_prefix("authorize ") {
             let ctrl = ControlMessage {
                 message_type: MessageType::AddWhitelistSender as i32,
-                payload: msg[10..].into(),
+                payload: msg.into(),
                 receiver: "".into(),
                 sender: self.network.local_peer_id(),
             };
@@ -113,28 +110,22 @@ impl<T: NetworkLayer> Management<T> {
         }
     }
 
-    /**
-     * Handle an incoming message as as base64-encoded string (for testing).
-     */
+    // Handle an incoming message as as base64-encoded string (for testing).
     pub async fn receive(&mut self, sender: String, msg: String) {
         let bytes = base64::decode(msg).unwrap();
         self.network_receive(sender, &bytes).await;
     }
 
-    /**
-     * Receive data from the network.
-     */
+    // Receive data from the network.
     pub async fn network_receive(&mut self, _sender: String, data: &[u8]) {
         let bytes = std::boxed::Box::from(data);
         let decoded = ControlMessage::decode(Bytes::from(bytes)).unwrap();
         self._handle_message(decoded).await;
     }
 
-    /**
-     * Send a ControlMessage as a base64 encoded string to the network layer.
-     *
-     * The sender id will automatically be set.
-     */
+    // Send a ControlMessage as a base64 encoded string to the network layer.
+    //
+    // The sender id will automatically be set.
     pub async fn send(&mut self, msg: ControlMessage) {
         let message = ControlMessage {
             sender: self.network.local_peer_id(),
@@ -144,11 +135,7 @@ impl<T: NetworkLayer> Management<T> {
         println!(
             "[Management] Sending message of type {:?} to {:?}",
             MessageType::from_i32(message.message_type).unwrap(),
-            message
-                .receiver
-                .get(44..)
-                .or_else(|| Some("broadcast"))
-                .unwrap(),
+            message.receiver.get(44..).unwrap_or("broadcast")
         );
 
         self.network.send_message(encoded.to_vec()).await;
@@ -158,7 +145,7 @@ impl<T: NetworkLayer> Management<T> {
         println!(
             "[Management] Got message of type {:?} from {:?}",
             MessageType::from_i32(msg.message_type).unwrap(),
-            &msg.sender.get(44..).or_else(|| Some("broadcast")).unwrap(),
+            &msg.sender.get(44..).unwrap_or("broadcast"),
         );
 
         // return if the message is not broadcast and not for me
