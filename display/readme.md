@@ -2,37 +2,42 @@
 
 ## Hardware Pinout
 
-OLED        =>    Raspberry Pi
-* VCC    ->    3.3
-* GND    ->    GND
-* DIN    ->    MOSI
-* CLK    ->    SCLK
-* CS     ->    24 (Physical, BCM: CE0, 8)
-* D/C    ->    36 (Physical, BCM: 16)
-* RES    ->    35 (Physical, BCM: 19)
+E-INK        =>    Raspberry Pi
+
+VCC    ->    3.3
+
+GND    ->    GND
+
+DIN    ->    10(SPI0_MOSI)
+
+CLK    ->    11(SPI0_SCK)
+
+CS     ->    8(SPI0_CS0)
+
+DC     ->    25
+
+RST    ->    17
+
+BUSY   ->    24
+
+
 
 ## Installation
 
 ### Package Vorraussetzungen
 
 ```console
-sudo apt-get install libc6-dev
+sudo apt-get install libc6-dev libstdc++6 libcap2 libcap-dev python3-pip python3-pil python3-numpy
 ``` 
+
 ```console
-sudo apt-get install libstdc++6 
-```
-```console
-sudo apt-get install libcap2 libcap-dev
+sudo pip3 install RPi.GPIO
 
 ```
 ```console
-sudo adduser $USER kmem
-
+sudo pip3 install spidev
 ```
-```console
-echo 'SUBSYSTEM=="mem", KERNEL=="mem", GROUP="kmem", MODE="0660"' | sudo tee /etc/udev/rules.d/98-mem.rules
 
-```
 ```console
 sudo reboot
 ```
@@ -48,17 +53,22 @@ tar zxvf bcm2835-1.71.tar.gz
 cd bcm2835-1.71
 ```
 ```console
-./configure
+sudo ./configure && sudo make && sudo make check && sudo make install
 ```
 ```console
-make
+wget https://project-downloads.drogon.net/wiringpi-latest.deb
 ```
 ```console
-sudo make check
+sudo apt install ./wiringpi-latest.deb -y
 ```
 ```console
-sudo make install
+gpio -v
 ```
+
+```console
+sudo reboot
+```
+
 
 ## Notes
 
