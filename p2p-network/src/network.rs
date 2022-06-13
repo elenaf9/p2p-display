@@ -5,16 +5,16 @@ use futures::{
 use libp2p::{
     core,
     gossipsub::{
-        Gossipsub, GossipsubConfig, GossipsubEvent, GossipsubMessage, IdentTopic,
-        MessageAuthenticity,
+        error::PublishError, Gossipsub, GossipsubConfig, GossipsubEvent, GossipsubMessage,
+        IdentTopic, MessageAuthenticity,
     },
     identity,
     mdns::{Mdns, MdnsConfig, MdnsEvent},
     mplex, noise,
-    swarm::SwarmEvent,
+    swarm::{dial_opts::DialOpts, SwarmEvent},
     tcp, yamux, Multiaddr, NetworkBehaviour, PeerId, Swarm, Transport,
 };
-use std::collections::HashSet;
+use std::collections::HashMap;
 
 // Fixed topic for the first PoC.
 const TOPIC: &str = "topic";
@@ -38,6 +38,8 @@ pub struct Network {
     inbound_message_tx: mpsc::Sender<(String, Vec<u8>)>,
 
     whitelisted: Vec<PeerId>,
+
+    addresses: HashMap<PeerId, Vec<Multiaddr>>,
 }
 
 impl Network {
@@ -83,6 +85,7 @@ impl Network {
             inbound_message_tx,
             command_rx,
             whitelisted: Vec::new(),
+            addresses: HashMap::new(),
         }
     }
 
@@ -131,12 +134,16 @@ impl Network {
             Command::SendMessage { message } => self.send_msg_to_swam(&message),
             Command::GetWhitelisted { tx } => tx.send(self.whitelisted.clone()).unwrap(),
             Command::AddWhitelisted { peer } => {
-                self.whitelisted.push(peer);
-                self.swarm.unban_peer_id(peer)
+                if !self.whitelisted.contains(&peer) {
+                    self.whitelisted.push(peer);
+                }
+
+                // Maybe this is not so smart, when updating larger networks, since everyone would start
+                // to connect a new peer all at once.
+                self.dial_to_peer(peer);
             }
             Command::RemoveWhitelisted { peer } => {
                 self.whitelisted.retain(|p| p != &peer);
-                self.swarm.ban_peer_id(peer)
             }
         }
     }
@@ -151,8 +158,9 @@ impl Network {
             .publish(self.topic.clone(), input)
         {
             Ok(_) => {}
+            Err(PublishError::InsufficientPeers) => {}
             Err(e) => {
-                println!("{:?}", e);
+                println!("[Network] Error sending to swarm: {:?}", e);
             }
         }
     }
@@ -163,10 +171,17 @@ impl Network {
     async fn handle_swarm_event<E>(&mut self, event: SwarmEvent<Event, E>) {
         match event {
             SwarmEvent::ConnectionEstablished { peer_id, .. } => {
-                if self.whitelisted.contains(&peer_id) {
+                println!("Got connection established {:?}", peer_id);
+                if self.whitelisted.is_empty() || self.whitelisted.contains(&peer_id) {
                     println!("Connected to {:?}", peer_id);
                 } else {
-                    self.swarm.ban_peer_id(peer_id);
+                    // TODO: reject connection without loosing the association from peer id to address
+                    // (after disconnect_peer_id, connect(peer_id) fails with no_address)
+                    println!(
+                        "Disconnecting connection from not whitelisted peer {:?}",
+                        peer_id
+                    );
+                    let _ = self.swarm.disconnect_peer_id(peer_id);
                 }
             }
             SwarmEvent::NewListenAddr { address, .. } => {
@@ -186,22 +201,48 @@ impl Network {
 
     // Handle event created by our inner MDNS behaviour.
     fn handle_mdns_event(&mut self, event: MdnsEvent) {
+        println!("Got mdns event");
         if let MdnsEvent::Discovered(discovered) = event {
-            let peers: HashSet<PeerId> = discovered.map(|(peer, _addr)| peer).collect();
+            // let peers: HashMap<PeerId, > = discovered.map(|(peer, addr)| peer).collect();
             // We discovered new peers in the local network.
             // Dial each peer. Once the connection is established the gossibsub protocol will make
             // the peers exchange what topics they are subscribed to.
             // When publishing to a topic, we thus then know whom to send the message to.
-            for peer in peers {
-                self.swarm.dial(peer).unwrap();
+            for (peer, addr) in discovered {
+                let addrs = self.addresses.entry(peer).or_default();
+                addrs.push(addr);
+
+                if self.whitelisted.contains(&peer) {
+                    println!("Connecting to whitelisted peer {:?}", peer);
+                    self.dial_to_peer(peer);
+                } else {
+                    println!("Got peer not whitelisted {:?}", peer);
+                }
+            }
+        }
+    }
+
+    fn dial_to_peer(&mut self, peer: PeerId) {
+        if !self.addresses.contains_key(&peer) {
+            println!("[Network] Could not find addresses for {:?}", peer);
+            return;
+        }
+
+        let opts = DialOpts::peer_id(peer)
+            .addresses(self.addresses.get(&peer).unwrap().clone())
+            .build();
+        match self.swarm.dial(opts) {
+            Ok(_) => {}
+            Err(e) => {
+                println!("[Network] Got error connecting to {:?}: {:?}", peer, e);
             }
         }
     }
 
     // Handle event created by our inner GossibSub behaviour.
     async fn handle_gossisub_event(&mut self, event: GossipsubEvent) {
+        println!("Got gossipsub event");
         if let GossipsubEvent::Message {
-            propagation_source,
             message:
                 GossipsubMessage {
                     data,
@@ -211,15 +252,10 @@ impl Network {
             ..
         } = event
         {
-            if self.whitelisted.contains(&source) && self.whitelisted.contains(&propagation_source)
-            {
-                // We received a message that was published by a remote peer to a topic
-                // we are subscribing to.
-                self.inbound_message_tx
-                    .send((source.to_base58(), data))
-                    .await
-                    .unwrap();
-            }
+            self.inbound_message_tx
+                .send((source.to_base58(), data))
+                .await
+                .unwrap();
         }
     }
 }
