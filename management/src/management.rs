@@ -141,18 +141,25 @@ impl<T: NetworkLayer> Management<T> {
             ..msg
         };
         let encoded = message.encode_to_vec();
-        let base64_encoded = base64::encode(&encoded);
         println!(
-            "[Management] Sending message: {:?} (base64: {:?})",
-            message, base64_encoded,
+            "[Management] Sending message of type {:?} to {:?}",
+            MessageType::from_i32(message.message_type).unwrap(),
+            message
+                .receiver
+                .get(44..)
+                .or_else(|| Some("broadcast"))
+                .unwrap(),
         );
 
-        // (self.network_send)(&encoded);
         self.network.send_message(encoded.to_vec()).await;
     }
 
     async fn _handle_message(&mut self, msg: ControlMessage) {
-        println!("[Management] Got message: {:?}", msg);
+        println!(
+            "[Management] Got message of type {:?} from {:?}",
+            MessageType::from_i32(msg.message_type).unwrap(),
+            &msg.sender.get(44..).or_else(|| Some("broadcast")).unwrap(),
+        );
 
         // return if the message is not broadcast and not for me
         if !msg.receiver.is_empty() && msg.receiver != self.network.local_peer_id() {
