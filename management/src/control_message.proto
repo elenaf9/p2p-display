@@ -5,9 +5,16 @@ package management.control_message;
 message ControlMessage {
     enum MessageType {
         DISPLAY_MESSAGE = 0;
-    }
+        ADD_WHITELIST_PEER = 1;
+        ADD_WHITELIST_SENDER = 2;
+    }  
 
+    // header
     MessageType messageType = 1;
-    string text = 2;
+    string receiver = 2;
+    string sender = 3;
+
+    // payload
+    string payload = 4;
 }
 

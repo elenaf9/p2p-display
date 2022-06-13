@@ -1,3 +1,6 @@
+use std::thread;
+use std::time;
+
 use crate::message::control_message::MessageType;
 use crate::message::ControlMessage;
 // #[cfg(feature = "display")]
@@ -11,7 +14,6 @@ use p2p_network::NetworkComponent;
 use p2p_network::NetworkLayer;
 use prost::bytes::Bytes;
 use prost::Message;
-
 
 //#[link(name = "toDisplay")]
 #[cfg(feature = "display")]
@@ -27,6 +29,8 @@ pub struct Management<T> {
     display_show: fn(data: String),
     recv_msg_rx: mpsc::Receiver<(String, Vec<u8>)>,
 
+    autorized_senders: Vec<String>,
+
     network: T,
 }
 
@@ -40,6 +44,7 @@ impl<T: NetworkLayer> Management<T> {
             display_show,
             recv_msg_rx,
             network,
+            autorized_senders: vec![],
         }
     }
 
@@ -64,11 +69,48 @@ impl<T: NetworkLayer> Management<T> {
     }
 
     pub async fn handle_user_input(&mut self, msg: String) {
-        let msg = ControlMessage {
-            message_type: MessageType::DisplayMessage as i32,
-            text: msg.to_string(),
-        };
-        self.send(msg).await;
+        if msg.starts_with("send ") {
+            self.send(ControlMessage {
+                message_type: MessageType::DisplayMessage as i32,
+                payload: msg[5..].into(),
+                receiver: "".into(),
+                sender: self.network.local_peer_id(),
+            })
+            .await;
+        } else if msg.starts_with("whitelist ") {
+            let new_peer: String = msg[10..].into();
+            let ctrl = ControlMessage {
+                message_type: MessageType::AddWhitelistPeer as i32,
+                payload: new_peer.clone(),
+                receiver: "".into(),
+                sender: self.network.local_peer_id(),
+            };
+            self._handle_message(ctrl.clone()).await;
+
+            thread::sleep(time::Duration::from_millis(200));
+            self.send(ctrl).await;
+            thread::sleep(time::Duration::from_millis(200));
+
+            let list = self.network.get_whitelisted().await;
+            for peer in list {
+                self.send(ControlMessage {
+                    message_type: MessageType::AddWhitelistPeer as i32,
+                    payload: peer,
+                    receiver: new_peer.clone(),
+                    sender: self.network.local_peer_id(),
+                })
+                .await;
+            }
+        } else if msg.starts_with("authorize ") {
+            let ctrl = ControlMessage {
+                message_type: MessageType::AddWhitelistSender as i32,
+                payload: msg[10..].into(),
+                receiver: "".into(),
+                sender: self.network.local_peer_id(),
+            };
+            self._handle_message(ctrl.clone()).await;
+            self.send(ctrl).await;
+        }
     }
 
     /**
@@ -90,13 +132,19 @@ impl<T: NetworkLayer> Management<T> {
 
     /**
      * Send a ControlMessage as a base64 encoded string to the network layer.
+     *
+     * The sender id will automatically be set.
      */
     pub async fn send(&mut self, msg: ControlMessage) {
-        let encoded = msg.encode_to_vec();
+        let message = ControlMessage {
+            sender: self.network.local_peer_id(),
+            ..msg
+        };
+        let encoded = message.encode_to_vec();
         let base64_encoded = base64::encode(&encoded);
         println!(
             "[Management] Sending message: {:?} (base64: {:?})",
-            msg, base64_encoded,
+            message, base64_encoded,
         );
 
         // (self.network_send)(&encoded);
@@ -106,9 +154,29 @@ impl<T: NetworkLayer> Management<T> {
     async fn _handle_message(&mut self, msg: ControlMessage) {
         println!("[Management] Got message: {:?}", msg);
 
+        // return if the message is not broadcast and not for me
+        if !msg.receiver.is_empty() && msg.receiver != self.network.local_peer_id() {
+            println!("[Management] Ignoring message for other peer");
+            return;
+        }
+
+        // return if there are authorized senders and the message sender is not one of them
+        if !self.autorized_senders.is_empty() && !self.autorized_senders.contains(&msg.sender) {
+            println!("[Management] Unauthorized sender: {:?}", msg);
+            return;
+        }
+
         match MessageType::from_i32(msg.message_type) {
             Some(MessageType::DisplayMessage) => {
-                (self.display_show)(msg.text);
+                (self.display_show)(msg.payload);
+            }
+            Some(MessageType::AddWhitelistPeer) => {
+                println!("[Management] Whitelisting peer: {:?}", &msg.payload);
+                self.network.add_whitelisted(msg.payload).await;
+            }
+            Some(MessageType::AddWhitelistSender) => {
+                println!("[Management] Authorizing sender: {:?}", &msg.payload);
+                self.autorized_senders.push(msg.payload);
             }
             None => {
                 println!("Could not parse message");
