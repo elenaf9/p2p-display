@@ -34,7 +34,7 @@ Setup:
 ## Running the p2p network
 
 On the Raspberrpi Pi:
-1. Install Rust: `curl <https://sh.rustup.rs> -sSf | sh`
+1. Install Rust: `curl https://sh.rustup.rs -sSf | sh`
 2. Setup cargo env: `source $HOME/.cargo/env`
 3. Install Protocol Buffer Compiler: `sudo apt install -y protobuf-compiler`
 4. Copy the zipped `p2p-network` folder to pi. On the host machine:
