@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::thread;
 use std::time;
 
@@ -27,6 +28,8 @@ pub struct Management<T> {
     recv_msg_rx: mpsc::Receiver<(String, Vec<u8>)>,
 
     autorized_senders: Vec<String>,
+    aliases: HashMap<String, String>,
+    alias: String,
 
     network: T,
 }
@@ -42,6 +45,8 @@ impl<T: NetworkLayer> Management<T> {
             recv_msg_rx,
             network,
             autorized_senders: vec![],
+            aliases: HashMap::new(),
+            alias: "".into(),
         }
     }
 
@@ -107,6 +112,14 @@ impl<T: NetworkLayer> Management<T> {
             };
             self._handle_message(ctrl.clone()).await;
             self.send(ctrl).await;
+        } else if let Some(msg) = msg.strip_prefix("alias ") {
+            let ctrl = ControlMessage {
+                message_type: MessageType::PublishAlias as i32,
+                payload: msg.into(),
+                receiver: "".into(),
+                sender: "".into(),
+            };
+            self.send(ctrl).await;
         }
     }
 
@@ -129,6 +142,7 @@ impl<T: NetworkLayer> Management<T> {
     pub async fn send(&mut self, msg: ControlMessage) {
         let message = ControlMessage {
             sender: self.network.local_peer_id(),
+            receiver: self._resolve_alias(msg.receiver),
             ..msg
         };
         let encoded = message.encode_to_vec();
@@ -139,6 +153,11 @@ impl<T: NetworkLayer> Management<T> {
         );
 
         self.network.send_message(encoded.to_vec()).await;
+    }
+
+    // Return the alias id resolves to or id itself
+    fn _resolve_alias(&mut self, id: String) -> String {
+        return self.aliases.get(&id).unwrap_or(&id).clone();
     }
 
     async fn _handle_message(&mut self, msg: ControlMessage) {
@@ -171,6 +190,41 @@ impl<T: NetworkLayer> Management<T> {
             Some(MessageType::AddWhitelistSender) => {
                 println!("[Management] Authorizing sender: {:?}", &msg.payload);
                 self.autorized_senders.push(msg.payload);
+            }
+            Some(MessageType::PublishAlias) => {
+                if self.aliases.contains_key(&msg.payload) {
+                    println!(
+                        "[Management] Rejected new alias {:?} for {:?}",
+                        &msg.payload,
+                        &msg.sender.get(44..).unwrap_or("broadcast")
+                    );
+                    return;
+                }
+
+                println!(
+                    "[Management] Got new alias {:?} for {:?}",
+                    &msg.payload,
+                    &msg.sender.get(44..).unwrap_or("broadcast"),
+                );
+
+                // remove previous alias for sender
+                let prev_alias = self._resolve_alias(msg.sender.clone());
+                let _ = self.aliases.remove(&prev_alias);
+
+                // add new alias for sender
+                self.aliases.insert(msg.payload, msg.sender.clone());
+            }
+            Some(MessageType::NetworkSolicitation) => {
+                // Send current alias if there is one
+                if self.alias != "" {
+                    self.send(ControlMessage {
+                        message_type: MessageType::PublishAlias as i32,
+                        sender: "".into(),
+                        receiver: msg.sender,
+                        payload: self.alias.clone(),
+                    })
+                    .await;
+                }
             }
             None => {
                 println!("Could not parse message");
