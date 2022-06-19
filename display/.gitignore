@@ -1,0 +1,2 @@
+# Don't ignore the pre-built bcm library
+!libbcm2835.a
