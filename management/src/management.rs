@@ -79,6 +79,15 @@ impl<T: NetworkLayer> Management<T> {
                 sender: self.network.local_peer_id(),
             })
             .await;
+        } else if let Some(msg) = msg.strip_prefix("sendto ") {
+            let parts = msg.split_once(" ").unwrap();
+            self.send(ControlMessage {
+                message_type: MessageType::DisplayMessage as i32,
+                payload: parts.1.into(),
+                receiver: parts.0.into(),
+                sender: self.network.local_peer_id(),
+            })
+            .await;
         } else if let Some(msg) = msg.strip_prefix("whitelist ") {
             let new_peer: String = msg.into();
             let ctrl = ControlMessage {
