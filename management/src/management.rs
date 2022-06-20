@@ -134,8 +134,17 @@ impl<T: NetworkLayer> Management<T> {
                 sender: "".into(),
             };
             self.send(ctrl).await;
-        } else if let Some(msg) = msg.strip_prefix("upgrade ") {
+        } else if let Some(msg) = msg.strip_prefix("upgrade self ") {
             let _ = UpgradeServer::upgrade_binary(msg.into());
+        } else if let Some(msg) = msg.strip_prefix("upgrade ") {
+            let parts = msg.split_once(" ").unwrap();
+            self.send(ControlMessage {
+                message_type: MessageType::Upgrade as i32,
+                receiver: parts.0.into(),
+                sender: "".into(),
+                payload: parts.1.into(),
+            })
+            .await;
         } else if let Some(_) = msg.strip_prefix("serve stop") {
             self.upgrader.stop_serving().await;
         } else if let Some(msg) = msg.strip_prefix("serve ") {
@@ -245,6 +254,10 @@ impl<T: NetworkLayer> Management<T> {
                     })
                     .await;
                 }
+            }
+            Some(MessageType::Upgrade) => {
+                println!("[Management] Got upgrade request from {}", msg.sender);
+                let _ = UpgradeServer::upgrade_binary(msg.payload);
             }
             None => {
                 println!("Could not parse message");

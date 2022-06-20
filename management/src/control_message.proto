@@ -9,6 +9,7 @@ message ControlMessage {
         ADD_WHITELIST_SENDER = 2;
         PUBLISH_ALIAS = 3;
         NETWORK_SOLICITATION = 4;
+        UPGRADE = 5;
     }  
 
     // header
