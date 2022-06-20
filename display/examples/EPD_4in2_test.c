@@ -91,7 +91,7 @@ int EPD_toDisplay_draw(int position, char *input){
     }
     if(position == 5){
         Paint_DrawString_EN(10, 340, "18:00-20:00", &Font16, WHITE, BLACK);
-        Paint_DrawString_EN(150, 340, "Party", &Font16, WHITE, BLACK);
+        Paint_DrawString_EN(150, 340, input, &Font16, WHITE, BLACK);
     }
     if(position == 6){
         printf("test 7\n");
