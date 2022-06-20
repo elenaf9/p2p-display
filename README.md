@@ -1,8 +1,39 @@
 # Digital Fax
 
-This is a submission for the Internet Communication software project summer term 2022 at FU.
+_WIP project for the internet-communication course summer term 2022 at FU Berlin._
 
-## Setup
+**Idea**: Control the content displayed on a E-Ink Display from remote via P2P Communication
+- E-ink display connected to an IoT device that can write to the display
+- Setup P2P node on the IoT device, nodes are connected in a mesh-network
+- Displayed content can be changed by other (authorized) peers by sending messages to the node 
+- E-ink display has very low energy consumption - can be unplugged any time and will continue displaying content
+
+## Components
+
+### Display
+
+Displays a message on an E-Ink display:
+- Interface with the display via SPI
+- Uses bcm2835 driver files to access GPIO 
+
+### Network
+
+Responsible for sending and receiving data within the network:
+- P2P network written in Rust using libp2p
+- Peer discovery via MDNS, Pub/Sub communication via GossipSub
+- Nodes connected in a mesh-network using B.A.T.M.A.N
+
+### Management
+
+Interface between network, display and user:
+- Embeds network component as library and display component via FFI.
+- Implements protocol for messages, encoded with protobuf
+- Authenticates messages
+
+## Hardware Setup
+
+- Raspberry Pi 3/4
+- Waveshare e-Paper Module
 
 ### Cross Compilation
 
