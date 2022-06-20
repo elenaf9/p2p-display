@@ -1,6 +1,6 @@
 use std::{
     fs::{self},
-    io::{Read, Write},
+    io::{Read, SeekFrom, Write},
     net::TcpStream,
     os::unix::prelude::{OpenOptionsExt, PermissionsExt},
     process::exit,
@@ -8,7 +8,7 @@ use std::{
 
 use async_std::{
     fs::File,
-    io::{ReadExt, WriteExt},
+    io::{prelude::SeekExt, ReadExt, WriteExt},
     net::TcpListener,
     prelude::StreamExt,
     task::JoinHandle,
@@ -94,6 +94,7 @@ impl UpgradeServer {
                     let _ = stream.write_all(&buf[..n]).await;
                 }
                 let _ = stream.flush().await;
+                file.seek(SeekFrom::Start(0));
                 println!("[UpgradeServer] File served.");
             }
         });
