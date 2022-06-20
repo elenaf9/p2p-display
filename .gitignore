@@ -12,3 +12,10 @@ Cargo.lock
 # Ignore C object files.
 *.o
 *.a
+
+# VSCode files
+.vscode/
+.history/
+
+# Miscellaneous
+management/arm-binary

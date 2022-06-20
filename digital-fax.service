@@ -1,0 +1,19 @@
+Description=Digital Fax.
+
+Wants=network.target
+After=syslog.target network-online.target
+
+[Service]
+Type=simple
+ExecStart=/home/pi/management
+Restart=always
+RestartSec=3
+KillMode=process
+StandardInput=tty-force
+TTYVHangup=yes
+TTYPath=/dev/tty20
+TTYReset=yes
+
+
+[Install]
+WantedBy=multi-user.target
