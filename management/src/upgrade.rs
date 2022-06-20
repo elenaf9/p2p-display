@@ -1,6 +1,6 @@
 use std::{
     fs::{self},
-    io::{Read, SeekFrom, Write},
+    io::{Read, Write},
     net::TcpStream,
     os::unix::prelude::{OpenOptionsExt, PermissionsExt},
     process::exit,
@@ -8,7 +8,7 @@ use std::{
 
 use async_std::{
     fs::File,
-    io::{prelude::SeekExt, ReadExt, WriteExt},
+    io::{ReadExt, WriteExt},
     net::TcpListener,
     prelude::StreamExt,
     task::JoinHandle,
@@ -75,7 +75,7 @@ impl UpgradeServer {
         println!("[UpgradeServer] Listening on {:?}...", &network_addr);
 
         let handle = async_std::task::spawn(async {
-            let mut file = file.unwrap();
+            let file_path = file_path;
             let listener = listener.unwrap();
 
             let mut incoming = listener.incoming();
@@ -83,7 +83,9 @@ impl UpgradeServer {
             while let Some(Ok(mut stream)) = incoming.next().await {
                 println!("[UpgradeServer] Serving file...");
 
+                let mut file = File::open(&file_path).await.unwrap();
                 let mut buf = [0; 4096];
+
                 loop {
                     let n = file.read(&mut buf).await.unwrap();
 
@@ -93,8 +95,9 @@ impl UpgradeServer {
 
                     let _ = stream.write_all(&buf[..n]).await;
                 }
+
                 let _ = stream.flush().await;
-                file.seek(SeekFrom::Start(0));
+
                 println!("[UpgradeServer] File served.");
             }
         });

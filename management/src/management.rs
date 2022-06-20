@@ -57,6 +57,7 @@ impl<T: NetworkLayer> Management<T> {
 
     pub async fn run(mut self) {
         let mut stdin = io::BufReader::new(io::stdin()).lines().fuse();
+        (self.display_show)("Initializing".into());
         loop {
             // `Select` is a macro that simultaneously polls items.
             select! {
@@ -270,6 +271,7 @@ impl<T: NetworkLayer> Management<T> {
 fn testing_display_show(mut data: String) {
     println!("[DISPLAY] Sending data to display: {:?}", data);
     unsafe {
+        data = data.replace(|c: char| !c.is_ascii(), "");
         toDisplay(data.as_mut_ptr().cast());
     }
 }
