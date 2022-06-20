@@ -2,6 +2,8 @@ use std::collections::HashMap;
 use std::thread;
 use std::time;
 
+mod upgrade;
+
 use crate::message::control_message::MessageType;
 use crate::message::ControlMessage;
 use async_std::io;
@@ -13,6 +15,7 @@ use p2p_network::NetworkComponent;
 use p2p_network::NetworkLayer;
 use prost::bytes::Bytes;
 use prost::Message;
+use upgrade::UpgradeServer;
 
 #[cfg(feature = "display")]
 #[link(name = "display")]
@@ -32,6 +35,7 @@ pub struct Management<T> {
     alias: String,
 
     network: T,
+    upgrader: UpgradeServer,
 }
 
 impl<T: NetworkLayer> Management<T> {
@@ -47,6 +51,7 @@ impl<T: NetworkLayer> Management<T> {
             autorized_senders: vec![],
             aliases: HashMap::new(),
             alias: "".into(),
+            upgrader: UpgradeServer::new(),
         }
     }
 
@@ -129,6 +134,12 @@ impl<T: NetworkLayer> Management<T> {
                 sender: "".into(),
             };
             self.send(ctrl).await;
+        } else if let Some(msg) = msg.strip_prefix("upgrade ") {
+            let _ = UpgradeServer::upgrade_binary(msg.into());
+        } else if let Some(_) = msg.strip_prefix("serve stop") {
+            self.upgrader.stop_serving().await;
+        } else if let Some(msg) = msg.strip_prefix("serve ") {
+            self.upgrader.serve(msg.into()).await;
         }
     }
 
