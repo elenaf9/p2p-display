@@ -6,11 +6,17 @@ This is a submission for the Internet Communication software project summer term
 
 ### Cross Compilation
 
-In order to cross-compile for arm, you need to install a GCC compiler for arm. On macOS this can be done using this GitHub repo: [macos-cross-toolchains](https://github.com/messense/homebrew-macos-cross-toolchains).
+In order to cross-compile for ARM, you need to install a GCC compiler for ARM. On macOS this can be done using this GitHub repo: [macos-cross-toolchains](https://github.com/messense/homebrew-macos-cross-toolchains).
+The compiler will probably have a name similar to `arm-unknown-linux-gnueabihf-gcc` and the archiver `arm-unknown-linux-gnueabihf-ar` but check this for your specific installation.
 
-To compile with display support, you need to build the display library on a Raspberry Pi using the instructions from the display directory. The pre-built `libdisplay.a` must be copied to the display directory.
+Compile display component static library for ARM:
 
-Compile for ARM:
+```sh
+cd display
+make lib CC=<COMPILER_NAME> AR=<ARCHIVER_NAME>
+```
+
+Compile management component for ARM:
 
 ```sh
 cargo build --release --target arm-unknown-linux-gnueabihf
