@@ -26,6 +26,21 @@ pub mod message {
     include!(concat!(env!("OUT_DIR"), "/management.control_message.rs"));
 }
 
+impl ControlMessage {
+    pub fn new<T: Into<String>, S: Into<String>>(
+        message_type: MessageType,
+        payload: T,
+        receiver: S,
+    ) -> Self {
+        ControlMessage {
+            message_type: message_type as i32,
+            receiver: receiver.into(),
+            sender: "".into(),
+            payload: payload.into(),
+        }
+    }
+}
+
 pub struct Management<T> {
     display_show: fn(data: String),
     recv_msg_rx: mpsc::Receiver<(String, Vec<u8>)>,
@@ -78,74 +93,51 @@ impl<T: NetworkLayer> Management<T> {
 
     pub async fn handle_user_input(&mut self, msg: String) {
         if let Some(msg) = msg.strip_prefix("send ") {
-            self.send(ControlMessage {
-                message_type: MessageType::DisplayMessage as i32,
-                payload: msg.into(),
-                receiver: "".into(),
-                sender: self.network.local_peer_id(),
-            })
-            .await;
+            self.send(ControlMessage::new(MessageType::DisplayMessage, msg, ""))
+                .await;
         } else if let Some(msg) = msg.strip_prefix("sendto ") {
             let parts = msg.split_once(" ").unwrap();
-            self.send(ControlMessage {
-                message_type: MessageType::DisplayMessage as i32,
-                payload: parts.1.into(),
-                receiver: parts.0.into(),
-                sender: self.network.local_peer_id(),
-            })
+            self.send(ControlMessage::new(
+                MessageType::DisplayMessage,
+                parts.1,
+                parts.0,
+            ))
             .await;
         } else if let Some(msg) = msg.strip_prefix("whitelist ") {
-            let new_peer: String = msg.into();
-            let ctrl = ControlMessage {
-                message_type: MessageType::AddWhitelistPeer as i32,
-                payload: new_peer.clone(),
-                receiver: "".into(),
-                sender: self.network.local_peer_id(),
-            };
+            let new_peer = msg;
+
+            let ctrl = ControlMessage::new(MessageType::AddWhitelistPeer, new_peer, "");
             self._handle_message(ctrl.clone()).await;
 
+            // notify the old peers of the new peer
             thread::sleep(time::Duration::from_millis(200));
             self.send(ctrl).await;
             thread::sleep(time::Duration::from_millis(200));
 
+            // Notify the new peer of the old whitelist
             let list = self.network.get_whitelisted().await;
             for peer in list {
-                self.send(ControlMessage {
-                    message_type: MessageType::AddWhitelistPeer as i32,
-                    payload: peer,
-                    receiver: new_peer.clone(),
-                    sender: self.network.local_peer_id(),
-                })
+                self.send(ControlMessage::new(
+                    MessageType::AddWhitelistPeer,
+                    peer,
+                    new_peer,
+                ))
                 .await;
             }
         } else if let Some(msg) = msg.strip_prefix("authorize ") {
-            let ctrl = ControlMessage {
-                message_type: MessageType::AddWhitelistSender as i32,
-                payload: msg.into(),
-                receiver: "".into(),
-                sender: self.network.local_peer_id(),
-            };
+            let ctrl = ControlMessage::new(MessageType::AddWhitelistSender, msg, "");
+
             self._handle_message(ctrl.clone()).await;
             self.send(ctrl).await;
         } else if let Some(msg) = msg.strip_prefix("alias ") {
-            let ctrl = ControlMessage {
-                message_type: MessageType::PublishAlias as i32,
-                payload: msg.into(),
-                receiver: "".into(),
-                sender: "".into(),
-            };
-            self.send(ctrl).await;
+            self.send(ControlMessage::new(MessageType::PublishAlias, msg, ""))
+                .await;
         } else if let Some(msg) = msg.strip_prefix("upgrade self ") {
             let _ = UpgradeServer::upgrade_binary(msg.into());
         } else if let Some(msg) = msg.strip_prefix("upgrade ") {
             let parts = msg.split_once(" ").unwrap();
-            self.send(ControlMessage {
-                message_type: MessageType::Upgrade as i32,
-                receiver: parts.0.into(),
-                sender: "".into(),
-                payload: parts.1.into(),
-            })
-            .await;
+            self.send(ControlMessage::new(MessageType::Upgrade, parts.1, parts.0))
+                .await;
         } else if let Some(_) = msg.strip_prefix("serve stop") {
             self.upgrader.stop_serving().await;
         } else if let Some(msg) = msg.strip_prefix("serve ") {
