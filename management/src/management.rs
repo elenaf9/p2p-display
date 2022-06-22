@@ -53,6 +53,10 @@ pub struct Management<T> {
 
     network: T,
     upgrader: UpgradeServer,
+
+    discovered_peers: Vec<String>,
+    rejected_peers: Vec<String>,
+    connected_peers: Vec<String>,
 }
 
 impl<T: NetworkLayer> Management<T> {
@@ -72,6 +76,9 @@ impl<T: NetworkLayer> Management<T> {
             aliases: HashMap::new(),
             alias: "".into(),
             upgrader: UpgradeServer::new(),
+            discovered_peers: vec![],
+            rejected_peers: vec![],
+            connected_peers: vec![],
         }
     }
 
@@ -101,6 +108,11 @@ impl<T: NetworkLayer> Management<T> {
 
     pub async fn handle_network_event(&mut self, event: NetworkEvent) {
         match event {
+            NetworkEvent::PeerDiscovered { peer } => {
+                if !self.discovered_peers.contains(&peer) {
+                    self.discovered_peers.push(peer);
+                }
+            }
             NetworkEvent::ConnectionEstablished { peer } => {
                 // wait a bit for all connections to be established
                 thread::sleep(time::Duration::from_millis(500));
@@ -109,12 +121,26 @@ impl<T: NetworkLayer> Management<T> {
                     self.send(ControlMessage::new(
                         MessageType::PublishAlias,
                         self.alias.clone(),
-                        peer,
+                        peer.clone(),
                     ))
                     .await;
                 }
+
+                self.rejected_peers.retain(|p| p != &peer);
+                if !self.connected_peers.contains(&peer) {
+                    self.connected_peers.push(peer);
+                }
             }
-            _ => {}
+            NetworkEvent::ConnectionRejected { peer } => {
+                if !self.rejected_peers.contains(&peer) {
+                    self.rejected_peers.push(peer);
+                }
+            }
+            NetworkEvent::PeerExpired { peer } => {
+                self.connected_peers.retain(|p| p != &peer);
+                self.rejected_peers.retain(|p| p != &peer);
+                self.discovered_peers.retain(|p| p != &peer);
+            }
         }
     }
 
@@ -176,7 +202,16 @@ impl<T: NetworkLayer> Management<T> {
                     println!("[Management] show alias: {:?}", self.alias);
                 }
                 "aliases" => {
-                    println!("[Management] show alias: {:?}", self.aliases);
+                    println!("[Management] show aliases: {:?}", self.aliases);
+                }
+                "discovered" => {
+                    println!("[Management] show discovered: {:?}", self.discovered_peers);
+                }
+                "connected" => {
+                    println!("[Management] show connected: {:?}", self.connected_peers);
+                }
+                "rejected" => {
+                    println!("[Management] show rejected: {:?}", self.rejected_peers);
                 }
                 msg => {
                     println!("[Management] Unknown show command: {}", msg);

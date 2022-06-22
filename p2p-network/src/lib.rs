@@ -17,6 +17,7 @@ pub enum NetworkEvent {
     ConnectionEstablished { peer: String },
     ConnectionRejected { peer: String },
     PeerDiscovered { peer: String },
+    PeerExpired { peer: String },
 }
 
 pub struct NetworkComponent {

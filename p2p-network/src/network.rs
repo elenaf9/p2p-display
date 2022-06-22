@@ -244,6 +244,15 @@ impl Network {
                     println!("Got peer not whitelisted {:?}", peer);
                 }
             }
+        } else if let MdnsEvent::Expired(expired) = event {
+            for (peer, _) in expired {
+                self.event_tx
+                    .send(NetworkEvent::PeerExpired {
+                        peer: peer.to_base58(),
+                    })
+                    .await
+                    .unwrap();
+            }
         }
     }
 
