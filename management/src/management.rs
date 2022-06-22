@@ -12,6 +12,7 @@ use futures::select;
 use futures::AsyncBufReadExt;
 use futures::StreamExt;
 use p2p_network::NetworkComponent;
+use p2p_network::NetworkEvent;
 use p2p_network::NetworkLayer;
 use prost::bytes::Bytes;
 use prost::Message;
@@ -44,6 +45,7 @@ impl ControlMessage {
 pub struct Management<T> {
     display_show: fn(data: String),
     recv_msg_rx: mpsc::Receiver<(String, Vec<u8>)>,
+    event_rx: mpsc::Receiver<NetworkEvent>,
 
     autorized_senders: Vec<String>,
     aliases: HashMap<String, String>,
@@ -55,17 +57,17 @@ pub struct Management<T> {
 
 impl<T: NetworkLayer> Management<T> {
     pub fn new(display_show: fn(data: String)) -> Self {
-        let (recv_msg_tx, recv_msg_rx) = mpsc::channel(0);
+        // it appears there is a deadlock in here somewhere... so we need some buffer to clear it.
+        let (recv_msg_tx, recv_msg_rx) = mpsc::channel(10);
+        let (network_event_tx, network_event_rx) = mpsc::channel(10);
 
-        let network = T::init(
-            None,
-            recv_msg_tx,
-        );
+        let network = T::init(None, recv_msg_tx, network_event_tx);
 
         Management {
             display_show,
             recv_msg_rx,
             network,
+            event_rx: network_event_rx,
             autorized_senders: vec![],
             aliases: HashMap::new(),
             alias: "".into(),
@@ -90,7 +92,29 @@ impl<T: NetworkLayer> Management<T> {
                     let input = line.expect("Stdin not to close");
                     self.handle_user_input(input).await;
                 }
+                event = self.event_rx.select_next_some() => {
+                    self.handle_network_event(event).await;
+                }
             }
+        }
+    }
+
+    pub async fn handle_network_event(&mut self, event: NetworkEvent) {
+        match event {
+            NetworkEvent::ConnectionEstablished { peer } => {
+                // wait a bit for all connections to be established
+                thread::sleep(time::Duration::from_millis(500));
+
+                if self.alias != "" {
+                    self.send(ControlMessage::new(
+                        MessageType::PublishAlias,
+                        self.alias.clone(),
+                        peer,
+                    ))
+                    .await;
+                }
+            }
+            _ => {}
         }
     }
 
@@ -135,6 +159,7 @@ impl<T: NetworkLayer> Management<T> {
         } else if let Some(msg) = msg.strip_prefix("alias ") {
             self.send(ControlMessage::new(MessageType::PublishAlias, msg, ""))
                 .await;
+            self.alias = msg.into();
         } else if let Some(msg) = msg.strip_prefix("upgrade self ") {
             let _ = UpgradeServer::upgrade_binary(msg.into());
         } else if let Some(msg) = msg.strip_prefix("upgrade ") {
@@ -145,6 +170,18 @@ impl<T: NetworkLayer> Management<T> {
             self.upgrader.stop_serving().await;
         } else if let Some(msg) = msg.strip_prefix("serve ") {
             self.upgrader.serve(msg.into()).await;
+        } else if let Some(msg) = msg.strip_prefix("show ") {
+            match msg {
+                "alias" => {
+                    println!("[Management] show alias: {:?}", self.alias);
+                }
+                "aliases" => {
+                    println!("[Management] show alias: {:?}", self.aliases);
+                }
+                msg => {
+                    println!("[Management] Unknown show command: {}", msg);
+                }
+            }
         }
     }
 
