@@ -58,7 +58,7 @@ impl<T: NetworkLayer> Management<T> {
         let (recv_msg_tx, recv_msg_rx) = mpsc::channel(0);
 
         let network = T::init(
-            Some(std::path::Path::new("/home/elfr/private.pem")),
+            None,
             recv_msg_tx,
         );
 
