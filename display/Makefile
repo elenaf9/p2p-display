@@ -28,29 +28,29 @@ DEBUG_RPI = -D $(USELIB_RPI) -D RPI
 TARGET = epd
 CC = gcc
 AR = ar
-MSG = -g -O -ffunction-sections -fdata-sections -Wall
+MSG = -ffunction-sections -fdata-sections
 CFLAGS += $(MSG)
 
 $(shell mkdir -p $(DIR_BIN))
 
 ${DIR_BIN}/%.o:$(DIR_Examples)/%.c
-	$(CC) $(CFLAGS) -c  $< -o $@ -I $(DIR_Config) -I $(DIR_GUI) -I $(DIR_EPD) $(DEBUG)
+	$(CC) $(CFLAGS) -c $< -o $@ -I $(DIR_Config) -I $(DIR_GUI) -I $(DIR_EPD) $(DEBUG)
     
 ${DIR_BIN}/%.o:$(DIR_EPD)/%.c
-	$(CC) $(CFLAGS) -c  $< -o $@ -I $(DIR_Config) $(DEBUG)
+	$(CC) $(CFLAGS) -c $< -o $@ -I $(DIR_Config) $(DEBUG)
     
 ${DIR_BIN}/%.o:$(DIR_FONTS)/%.c 
-	$(CC) $(CFLAGS) -c  $< -o $@ $(DEBUG)
+	$(CC) $(CFLAGS) -c $< -o $@ $(DEBUG)
     
 ${DIR_BIN}/%.o:$(DIR_GUI)/%.c
-	$(CC) $(CFLAGS) -c  $< -o $@ -I $(DIR_Config) $(DEBUG)
+	$(CC) $(CFLAGS) -c $< -o $@ -I $(DIR_Config) $(DEBUG)
 
 .PHONY : RPI clean RPI_DEV RPI_epd lib
 
 RPI: RPI_DEV RPI_epd
 
 RPI_epd: RPI_epd_lib
-	$(CC) $(CFLAGS) -D RPI $(OBJ_O) $(RPI_DEV_C) -o $(TARGET) $(LIB_RPI)
+	$(CC) $(CFLAGS)  -D RPI $(OBJ_O) $(RPI_DEV_C) -o $(TARGET) $(LIB_RPI)
 
 RPI_epd_lib: ${OBJ_O}
 
