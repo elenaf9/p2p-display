@@ -6,6 +6,7 @@ edition = "2021"
 [dependencies]
 async-std = { version = "1.11.0", features = ["attributes"]} 
 async-trait = "0.1.56"
+curve25519-parser = "0.2.0"
 futures = "0.3.21"
 libp2p = { version = "0.44.0", default-features = false, features = [
     "dns-async-std",

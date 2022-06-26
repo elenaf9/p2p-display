@@ -57,7 +57,10 @@ impl<T: NetworkLayer> Management<T> {
     pub fn new(display_show: fn(data: String)) -> Self {
         let (recv_msg_tx, recv_msg_rx) = mpsc::channel(0);
 
-        let network = T::init(recv_msg_tx);
+        let network = T::init(
+            Some(std::path::Path::new("/home/elfr/private.pem")),
+            recv_msg_tx,
+        );
 
         Management {
             display_show,

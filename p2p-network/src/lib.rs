@@ -1,13 +1,16 @@
 mod network;
 
-use std::str::FromStr;
+use std::{path::Path, str::FromStr};
 
 use async_trait::async_trait;
 use futures::{
     channel::{mpsc, oneshot},
     SinkExt,
 };
-use libp2p::{identity, PeerId};
+use libp2p::{
+    identity::{self, ed25519},
+    PeerId,
+};
 use network::{Command, Network};
 
 #[derive(Clone)]
@@ -18,7 +21,14 @@ pub struct NetworkComponent {
 
 #[async_trait]
 pub trait NetworkLayer {
-    fn init(in_message_tx: mpsc::Sender<(String, Vec<u8>)>) -> Self;
+    /// Create a new network.
+    ///
+    /// Inbound messages from remote peers are forwarded as (sender, message) tuple
+    /// through `in_message_tx`.
+    ///
+    /// Optionally the identity private key may be loaded from a file.
+    /// It is expected that the key is an OpenSSL ed25519 private key in PEM format.
+    fn init(private_key: Option<&Path>, in_message_tx: mpsc::Sender<(String, Vec<u8>)>) -> Self;
 
     fn local_peer_id(&self) -> String;
 
@@ -30,13 +40,24 @@ pub trait NetworkLayer {
 
 #[async_trait]
 impl NetworkLayer for NetworkComponent {
-    fn init(in_message_tx: mpsc::Sender<(String, Vec<u8>)>) -> Self {
+    fn init(private_key: Option<&Path>, in_message_tx: mpsc::Sender<(String, Vec<u8>)>) -> Self {
         let (command_tx, command_rx) = mpsc::channel(0);
 
-        // Authentication keypair.
+        // Load an ed25519 keypair from file or generate a new one.
+        //
         // Used to derive a unique PeerId and the keypair for encryption on the
         // Transport layer with the Noise protocol (https://noiseprotocol.org/noise.html).
-        let keypair = identity::Keypair::generate_ed25519();
+        //
+        let keypair = private_key
+            .and_then(|path| {
+                let sk_bytes = std::fs::read(path).ok()?;
+                let static_secret =
+                    curve25519_parser::parse_openssl_25519_privkey(&sk_bytes).ok()?;
+                let identity_ed25199_sk =
+                    ed25519::SecretKey::from_bytes(static_secret.to_bytes()).ok()?;
+                Some(identity::Keypair::Ed25519(identity_ed25199_sk.into()))
+            })
+            .unwrap_or_else(identity::Keypair::generate_ed25519);
         let local_peer_id = PeerId::from_public_key(&keypair.public());
 
         async_std::task::spawn(async {
