@@ -18,6 +18,7 @@ pub enum NetworkEvent {
     ConnectionRejected { peer: String },
     PeerDiscovered { peer: String },
     PeerExpired { peer: String },
+    NewListenAddress { addr: String },
 }
 
 pub struct NetworkComponent {

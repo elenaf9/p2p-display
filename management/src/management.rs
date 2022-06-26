@@ -18,6 +18,8 @@ use prost::bytes::Bytes;
 use prost::Message;
 use upgrade::UpgradeServer;
 
+pub const CURRENT_VERSION: Option<&str> = option_env!("DF_VERSION");
+
 #[cfg(feature = "display")]
 #[link(name = "display")]
 extern "C" {
@@ -57,6 +59,9 @@ pub struct Management<T> {
     discovered_peers: Vec<String>,
     rejected_peers: Vec<String>,
     connected_peers: Vec<String>,
+    listening_addrs: Vec<String>,
+
+    upgrade_in_progress: bool,
 }
 
 impl<T: NetworkLayer> Management<T> {
@@ -79,6 +84,8 @@ impl<T: NetworkLayer> Management<T> {
             discovered_peers: vec![],
             rejected_peers: vec![],
             connected_peers: vec![],
+            listening_addrs: vec![],
+            upgrade_in_progress: false,
         }
     }
 
@@ -126,6 +133,15 @@ impl<T: NetworkLayer> Management<T> {
                     .await;
                 }
 
+                if let Some(current_version) = CURRENT_VERSION {
+                    self.send(ControlMessage::new(
+                        MessageType::NetworkBinaryVersion,
+                        current_version,
+                        peer.clone(),
+                    ))
+                    .await;
+                }
+
                 self.rejected_peers.retain(|p| p != &peer);
                 if !self.connected_peers.contains(&peer) {
                     self.connected_peers.push(peer);
@@ -140,6 +156,11 @@ impl<T: NetworkLayer> Management<T> {
                 self.connected_peers.retain(|p| p != &peer);
                 self.rejected_peers.retain(|p| p != &peer);
                 self.discovered_peers.retain(|p| p != &peer);
+            }
+            NetworkEvent::NewListenAddress { addr } => {
+                if !self.listening_addrs.contains(&addr) {
+                    self.listening_addrs.push(addr);
+                }
             }
         }
     }
@@ -324,8 +345,44 @@ impl<T: NetworkLayer> Management<T> {
                 }
             }
             Some(MessageType::Upgrade) => {
-                println!("[Management] Got upgrade request from {}", msg.sender);
+                println!("[Management] Got upgrade from {}", msg.sender);
                 let _ = UpgradeServer::upgrade_binary(msg.payload);
+            }
+            Some(MessageType::RequestUpgrade) => {
+                println!("[Management] Got upgrade request from {}", &msg.sender);
+                if self.upgrade_in_progress {
+                    return;
+                }
+
+                self.upgrader.serve_binary_once().await;
+
+                for addr in self.listening_addrs.clone().iter() {
+                    let mut a = addr.clone();
+                    a.push_str(":");
+                    a.push_str(upgrade::UPGRADE_SERVER_PORT);
+
+                    self.send(ControlMessage::new(MessageType::Upgrade, a, &msg.sender))
+                        .await;
+                }
+            }
+            Some(MessageType::NetworkBinaryVersion) => {
+                println!("[Management] Got binary version from {}", &msg.sender);
+                if CURRENT_VERSION.is_some()
+                    && String::from(CURRENT_VERSION.unwrap()).ge(&msg.payload)
+                {
+                    return;
+                }
+                if self.upgrade_in_progress {
+                    return;
+                }
+                self.upgrade_in_progress = true;
+
+                self.send(ControlMessage::new(
+                    MessageType::RequestUpgrade,
+                    "",
+                    &msg.sender,
+                ))
+                .await;
             }
             None => {
                 println!("Could not parse message");

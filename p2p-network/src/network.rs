@@ -205,6 +205,12 @@ impl Network {
             }
             SwarmEvent::NewListenAddr { address, .. } => {
                 println!("Listening on {:?}", address);
+                self.event_tx
+                    .send(NetworkEvent::NewListenAddress {
+                        addr: address.to_string().split("/").nth(2).unwrap().into(),
+                    })
+                    .await
+                    .unwrap();
             }
             // Event issued my the Mdns protocol behaviour.
             SwarmEvent::Behaviour(Event::Mdns(ev)) => {

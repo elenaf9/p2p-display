@@ -5,11 +5,17 @@ package management.control_message;
 message ControlMessage {
     enum MessageType {
         DISPLAY_MESSAGE = 0;
+        
         ADD_WHITELIST_PEER = 1;
         ADD_WHITELIST_SENDER = 2;
+
         PUBLISH_ALIAS = 3;
+        
         NETWORK_SOLICITATION = 4;
+        NETWORK_BINARY_VERSION = 7;
+
         UPGRADE = 5;
+        REQUEST_UPGRADE = 6;
     }  
 
     // header

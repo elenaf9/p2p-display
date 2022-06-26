@@ -3,6 +3,7 @@ use std::{
     io::{Read, Write},
     net::TcpStream,
     os::unix::prelude::{OpenOptionsExt, PermissionsExt},
+    path::PathBuf,
     process::exit,
 };
 
@@ -18,15 +19,27 @@ pub struct UpgradeServer {
     handle: Option<JoinHandle<()>>,
 }
 
-const UPGRADE_SERVER_PORT: &str = "9803";
+pub const UPGRADE_SERVER_PORT: &str = "9803";
 
 impl UpgradeServer {
     pub fn new() -> Self {
         UpgradeServer { handle: None }
     }
 
+    pub fn get_current_path() -> PathBuf {
+        std::env::current_exe().unwrap()
+    }
+
     pub fn upgrade_binary(network_addr: String) -> Result<(), ()> {
-        let current_path = std::env::current_exe().unwrap();
+        let tcp_result = TcpStream::connect(&network_addr);
+        if tcp_result.is_err() {
+            println!("[UpgradeServer] Could not connect to {}", &network_addr);
+            return Err(());
+        }
+        let mut tcp = tcp_result.unwrap();
+        println!("[UpgradeServer] Upgrading from {}...", &network_addr);
+
+        let current_path = UpgradeServer::get_current_path();
         let update_path = current_path.with_file_name(".management.update");
 
         let mut file = fs::OpenOptions::new()
@@ -36,8 +49,6 @@ impl UpgradeServer {
             .open(&update_path)
             .unwrap();
         file.metadata().unwrap().permissions().set_mode(0o777);
-
-        let mut tcp = TcpStream::connect(network_addr).unwrap();
 
         let mut buf = [0; 4096];
         loop {
@@ -56,6 +67,51 @@ impl UpgradeServer {
         println!("[UpgradeServer] Exiting to apply update...");
 
         exit(0);
+    }
+
+    pub async fn serve_binary_once(&mut self) {
+        let file_path = UpgradeServer::get_current_path();
+        let file = File::open(&file_path).await;
+
+        if file.is_err() {
+            println!("[UpgradeServer] Could not serve file {:?}", &file_path);
+            return;
+        }
+
+        let network_addr: String = String::from("0.0.0.0:") + UPGRADE_SERVER_PORT;
+        let listener = TcpListener::bind(&network_addr).await;
+        if listener.is_err() {
+            println!("[UpgradeServer] Could not listen on {}", &network_addr);
+            return;
+        }
+        println!("[UpgradeServer] Listening on {:?}...", &network_addr);
+
+        let handle = async_std::task::spawn(async {
+            let file_path = file_path;
+            let listener = listener.unwrap();
+
+            if let Ok((mut stream, _)) = listener.accept().await {
+                println!("[UpgradeServer] Serving file...");
+
+                let mut file = File::open(&file_path).await.unwrap();
+                let mut buf = [0; 4096];
+
+                loop {
+                    let n = file.read(&mut buf).await.unwrap();
+
+                    if n == 0 {
+                        break;
+                    }
+
+                    let _ = stream.write_all(&buf[..n]).await;
+                }
+
+                let _ = stream.flush().await;
+
+                println!("[UpgradeServer] File served.");
+            }
+        });
+        self.handle = Some(handle);
     }
 
     pub async fn serve(&mut self, file_path: String) {
