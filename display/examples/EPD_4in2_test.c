@@ -55,7 +55,7 @@ int EPD_toDisplay(int sizeL, int sizeR,int percWidth[]){
 }
 
 int calcTextPos(int index, int width, char *input, sFONT frontType){
-    int pos = ((300-(2*borderOffset)) / (width+1)) * (index%width);
+    int pos = ((300-(2*borderOffset)) / (width)) * (index%width);
 
     
     if(index%width == 0){
@@ -77,8 +77,6 @@ int EPD_toDisplay_draw(int position, char *input){
     bool firstLine = true;
 
     if(sizeLines == 1){
-        printf("this!\n");
-
 
         Paint_DrawString_EN((300-(Font24.Width*strlen(strdup(input))))/2, (400-Font24.Height)/2, input, &Font24, WHITE, BLACK);
         return 0;
@@ -97,9 +95,6 @@ int EPD_toDisplay_draw(int position, char *input){
         }
     }
 
-    printf("init: %s | x = %d | y = %d | len: %d | xPos: %d | posi: %d\n",input,sizeLines,sizeRows,strlen(input),xPos,position);
-    printf("\n");
-
     if(!correctPercent){
         printf("yes\n");
         if(position == 0){
@@ -112,13 +107,25 @@ int EPD_toDisplay_draw(int position, char *input){
             Paint_DrawString_EN(xPos, 0, input, &Font24, WHITE, BLACK);
         }
         if(position > 2 && position < 6){
-            Paint_DrawString_EN(xPos, 120, input, &Font16, WHITE, BLACK);
+            Paint_DrawString_EN(xPos, 50, input, &Font16, WHITE, BLACK);
         }
         if(position > 5 && position < 9){
-            Paint_DrawString_EN(xPos, 180, input, &Font16, WHITE, BLACK);
+            Paint_DrawString_EN(xPos, 100, input, &Font16, WHITE, BLACK);
         }
         if(position > 8 && position < 12){
-            Paint_DrawString_EN(xPos, 240, input, &Font16, WHITE, BLACK);
+            Paint_DrawString_EN(xPos, 150, input, &Font16, WHITE, BLACK);
+        }
+        if(position > 11 && position < 15){
+            Paint_DrawString_EN(xPos, 200, input, &Font16, WHITE, BLACK);
+        }
+        if(position > 14 && position < 18){
+            Paint_DrawString_EN(xPos, 250, input, &Font16, WHITE, BLACK);
+        }
+        if(position > 17 && position < 21){
+            Paint_DrawString_EN(xPos, 300, input, &Font16, WHITE, BLACK);
+        }
+        if(position > 20 && position < 24){
+            Paint_DrawString_EN(xPos, 350, input, &Font16, WHITE, BLACK);
         }
     }
     
