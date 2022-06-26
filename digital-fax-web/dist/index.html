@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Document</title>
+</head>
+
+<body>
+  <h1>Digital Fax</h1>
+  <form id="form">
+    Message <input type="text" name="message"><br>
+    <input type="button" onclick="send()" value="Send">
+  </form>
+  <script>
+    // access the pre-bundled global API functions
+    const invoke = window.__TAURI__.invoke
+
+    function send() {
+        var x = document.getElementById("form");
+        var msg = x.elements[0].value;
+        invoke('handle_input', { input: msg })
+        // `invoke` returns a Promise
+        .then((res) => console.log(res))
+    }
+  </script>
+</body>
+
+</html>

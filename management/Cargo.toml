@@ -3,6 +3,14 @@ name = "management"
 version = "0.1.0"
 edition = "2021"
 
+[lib]
+name = "management"
+path = "src/lib.rs"
+
+[[bin]]
+name = "management"
+path = "src/bin.rs"
+
 [features]
 
 display = []
@@ -16,9 +24,6 @@ base64 = "0.13.0"
 futures = "0.3.21"
 p2p-network = { version = "0.1.0", path = "../p2p-network"}
 
-[[bin]]
-name = "management"
-path = "src/management.rs"
 
 [build-dependencies]
 prost-build = { version = "0.10" }

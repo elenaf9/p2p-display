@@ -2,16 +2,12 @@ use std::collections::HashMap;
 use std::thread;
 use std::time;
 
-mod upgrade;
-
-use crate::message::control_message::MessageType;
-use crate::message::ControlMessage;
-use async_std::io;
+use crate::upgrade;
 use futures::channel::mpsc;
 use futures::select;
-use futures::AsyncBufReadExt;
 use futures::StreamExt;
-use p2p_network::NetworkComponent;
+use message::control_message::MessageType;
+use message::ControlMessage;
 use p2p_network::NetworkLayer;
 use prost::bytes::Bytes;
 use prost::Message;
@@ -22,7 +18,7 @@ use upgrade::UpgradeServer;
 extern "C" {
     pub fn toDisplay(message: *mut ::std::os::raw::c_char) -> ::std::os::raw::c_int;
 }
-pub mod message {
+mod message {
     include!(concat!(env!("OUT_DIR"), "/management.control_message.rs"));
 }
 
@@ -42,8 +38,8 @@ impl ControlMessage {
 }
 
 pub struct Management<T> {
-    display_show: fn(data: String),
     recv_msg_rx: mpsc::Receiver<(String, Vec<u8>)>,
+    user_input_rx: mpsc::Receiver<String>,
 
     autorized_senders: Vec<String>,
     aliases: HashMap<String, String>,
@@ -54,17 +50,14 @@ pub struct Management<T> {
 }
 
 impl<T: NetworkLayer> Management<T> {
-    pub fn new(display_show: fn(data: String)) -> Self {
+    pub fn new(user_input_rx: mpsc::Receiver<String>) -> Self {
         let (recv_msg_tx, recv_msg_rx) = mpsc::channel(0);
 
-        let network = T::init(
-            None,
-            recv_msg_tx,
-        );
+        let network = T::init(None, recv_msg_tx);
 
         Management {
-            display_show,
             recv_msg_rx,
+            user_input_rx,
             network,
             autorized_senders: vec![],
             aliases: HashMap::new(),
@@ -74,8 +67,7 @@ impl<T: NetworkLayer> Management<T> {
     }
 
     pub async fn run(mut self) {
-        let mut stdin = io::BufReader::new(io::stdin()).lines().fuse();
-        (self.display_show)("Initializing".into());
+        testing_display_show("Initializing".into());
         loop {
             // `Select` is a macro that simultaneously polls items.
             select! {
@@ -85,9 +77,8 @@ impl<T: NetworkLayer> Management<T> {
                 (sender, message) = self.recv_msg_rx.select_next_some() => {
                     self.network_receive(sender, &message).await;
                 }
-                // Poll for user input from stdin.
-                line = stdin.select_next_some() => {
-                    let input = line.expect("Stdin not to close");
+                // Poll for user input.
+                input = self.user_input_rx.select_next_some() => {
                     self.handle_user_input(input).await;
                 }
             }
@@ -95,6 +86,7 @@ impl<T: NetworkLayer> Management<T> {
     }
 
     pub async fn handle_user_input(&mut self, msg: String) {
+        println!("go user message {:?}", msg);
         if let Some(msg) = msg.strip_prefix("send ") {
             self.send(ControlMessage::new(MessageType::DisplayMessage, msg, ""))
                 .await;
@@ -206,7 +198,7 @@ impl<T: NetworkLayer> Management<T> {
 
         match MessageType::from_i32(msg.message_type) {
             Some(MessageType::DisplayMessage) => {
-                (self.display_show)(msg.payload);
+                testing_display_show(msg.payload);
             }
             Some(MessageType::AddWhitelistPeer) => {
                 println!("[Management] Whitelisting peer: {:?}", &msg.payload);
@@ -274,11 +266,4 @@ fn testing_display_show(mut data: String) {
 #[cfg(not(feature = "display"))]
 fn testing_display_show(data: String) {
     println!("[DISPLAY] MOCK sending data to display: {:?}", data);
-}
-
-#[async_std::main]
-async fn main() {
-    let mgmt = Management::<NetworkComponent>::new(testing_display_show);
-
-    mgmt.run().await;
 }
