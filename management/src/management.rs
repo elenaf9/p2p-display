@@ -171,6 +171,11 @@ impl<T: NetworkLayer> Management<T> {
                     self.connected_peers.push(peer);
                 }
             }
+            NetworkEvent::ConnectionClosed { peer } => {
+                self.connected_peers.retain(|p| p != &peer);
+                self.rejected_peers.retain(|p| p != &peer);
+                self.discovered_peers.retain(|p| p != &peer);
+            }
             NetworkEvent::ConnectionRejected { peer } => {
                 if !self.rejected_peers.contains(&peer) {
                     self.rejected_peers.push(peer);

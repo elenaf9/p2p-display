@@ -14,6 +14,7 @@ use libp2p::{
 use network::{Command, Network};
 
 pub enum NetworkEvent {
+    ConnectionClosed { peer: String },
     ConnectionEstablished { peer: String },
     ConnectionRejected { peer: String },
     PeerDiscovered { peer: String },

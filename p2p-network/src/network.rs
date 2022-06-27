@@ -220,6 +220,15 @@ impl Network {
             SwarmEvent::Behaviour(Event::Gossipsub(ev)) => {
                 self.handle_gossisub_event(ev).await;
             }
+            SwarmEvent::ConnectionClosed { peer_id, .. } => {
+                println!("[Network] Connection to {:?} closed.", peer_id);
+                self.event_tx
+                    .send(NetworkEvent::ConnectionClosed {
+                        peer: peer_id.to_base58(),
+                    })
+                    .await
+                    .unwrap();
+            }
             _ => {}
         }
     }
