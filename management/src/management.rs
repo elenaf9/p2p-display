@@ -62,6 +62,9 @@ pub struct Management<T> {
     listening_addrs: Vec<String>,
 
     upgrade_in_progress: bool,
+    table_mode: bool,
+    table_receiver: String,
+    table: String,
 }
 
 impl<T: NetworkLayer> Management<T> {
@@ -86,6 +89,9 @@ impl<T: NetworkLayer> Management<T> {
             connected_peers: vec![],
             listening_addrs: vec![],
             upgrade_in_progress: false,
+            table_mode: false,
+            table_receiver: String::new(),
+            table: String::new(),
         }
     }
 
@@ -166,6 +172,24 @@ impl<T: NetworkLayer> Management<T> {
     }
 
     pub async fn handle_user_input(&mut self, msg: String) {
+        if self.table_mode {
+            if msg.is_empty() {
+                self.table_mode = false;
+                self.send(ControlMessage::new(
+                    MessageType::DisplayMessage,
+                    &self.table,
+                    &self.table_receiver,
+                ))
+                .await;
+
+                self.table_mode = false;
+                return;
+            }
+            self.table.push_str(&msg);
+            self.table.push_str("\n");
+            return;
+        }
+
         if let Some(msg) = msg.strip_prefix("send ") {
             self.send(ControlMessage::new(MessageType::DisplayMessage, msg, ""))
                 .await;
@@ -238,6 +262,11 @@ impl<T: NetworkLayer> Management<T> {
                     println!("[Management] Unknown show command: {}", msg);
                 }
             }
+        } else if let Some(msg) = msg.strip_prefix("table ") {
+            println!("[Management] Entering table mode. Exit with double newline.");
+            self.table_mode = true;
+            self.table = String::new();
+            self.table_receiver = msg.into();
         }
     }
 
