@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::path::Path;
 use std::thread;
 use std::time;
 
@@ -73,7 +74,29 @@ impl<T: NetworkLayer> Management<T> {
         let (recv_msg_tx, recv_msg_rx) = mpsc::channel(10);
         let (network_event_tx, network_event_rx) = mpsc::channel(10);
 
-        let network = T::init(None, recv_msg_tx, network_event_tx);
+        let mut private_key: Option<&Path> = None;
+        let mut pk: String;
+
+        let mut iter = std::env::args().into_iter();
+        loop {
+            let arg = iter.next();
+
+            match arg {
+                None => {
+                    break;
+                }
+                Some(arg) => {
+                    if arg == "--private-key" {
+                        let n = iter.next();
+                        if n.is_some() {
+                            pk = n.unwrap();
+                            private_key = Some(Path::new(&pk));
+                        }
+                    }
+                }
+            }
+        }
+        let network = T::init(private_key, recv_msg_tx, network_event_tx);
 
         Management {
             display_show,
