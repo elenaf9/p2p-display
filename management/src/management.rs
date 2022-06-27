@@ -3,15 +3,12 @@ use std::path::Path;
 use std::thread;
 use std::time;
 
-mod upgrade;
-
-use crate::message::control_message::MessageType;
-use crate::message::ControlMessage;
-use async_std::io;
+use crate::upgrade;
 use futures::channel::mpsc;
 use futures::select;
-use futures::AsyncBufReadExt;
 use futures::StreamExt;
+use message::control_message::MessageType;
+use message::ControlMessage;
 use p2p_network::NetworkComponent;
 use p2p_network::NetworkEvent;
 use p2p_network::NetworkLayer;
@@ -26,7 +23,7 @@ pub const CURRENT_VERSION: Option<&str> = option_env!("DF_VERSION");
 extern "C" {
     pub fn toDisplay(message: *mut ::std::os::raw::c_char) -> ::std::os::raw::c_int;
 }
-pub mod message {
+mod message {
     include!(concat!(env!("OUT_DIR"), "/management.control_message.rs"));
 }
 
@@ -46,8 +43,8 @@ impl ControlMessage {
 }
 
 pub struct Management<T> {
-    display_show: fn(data: String),
     recv_msg_rx: mpsc::Receiver<(String, Vec<u8>)>,
+    user_input_rx: mpsc::Receiver<String>,
     event_rx: mpsc::Receiver<NetworkEvent>,
 
     autorized_senders: Vec<String>,
@@ -69,7 +66,7 @@ pub struct Management<T> {
 }
 
 impl<T: NetworkLayer> Management<T> {
-    pub fn new(display_show: fn(data: String)) -> Self {
+    pub fn new(user_input_rx: mpsc::Receiver<String>) -> Self {
         // it appears there is a deadlock in here somewhere... so we need some buffer to clear it.
         let (recv_msg_tx, recv_msg_rx) = mpsc::channel(10);
         let (network_event_tx, network_event_rx) = mpsc::channel(10);
@@ -99,8 +96,8 @@ impl<T: NetworkLayer> Management<T> {
         let network = T::init(private_key, recv_msg_tx, network_event_tx);
 
         Management {
-            display_show,
             recv_msg_rx,
+            user_input_rx,
             network,
             event_rx: network_event_rx,
             autorized_senders: vec![],
@@ -119,8 +116,7 @@ impl<T: NetworkLayer> Management<T> {
     }
 
     pub async fn run(mut self) {
-        let mut stdin = io::BufReader::new(io::stdin()).lines().fuse();
-        (self.display_show)("Initializing".into());
+        write_to_display("Initializing".into());
         loop {
             // `Select` is a macro that simultaneously polls items.
             select! {
@@ -130,9 +126,8 @@ impl<T: NetworkLayer> Management<T> {
                 (sender, message) = self.recv_msg_rx.select_next_some() => {
                     self.network_receive(sender, &message).await;
                 }
-                // Poll for user input from stdin.
-                line = stdin.select_next_some() => {
-                    let input = line.expect("Stdin not to close");
+                // Poll for user input.
+                input = self.user_input_rx.select_next_some() => {
                     self.handle_user_input(input).await;
                 }
                 event = self.event_rx.select_next_some() => {
@@ -351,7 +346,7 @@ impl<T: NetworkLayer> Management<T> {
 
         match MessageType::from_i32(msg.message_type) {
             Some(MessageType::DisplayMessage) => {
-                (self.display_show)(msg.payload);
+                write_to_display(msg.payload);
             }
             Some(MessageType::AddWhitelistPeer) => {
                 println!("[Management] Whitelisting peer: {:?}", &msg.payload);
@@ -444,7 +439,7 @@ impl<T: NetworkLayer> Management<T> {
 }
 
 #[cfg(feature = "display")]
-fn testing_display_show(mut data: String) {
+fn write_to_display(mut data: String) {
     println!("[DISPLAY] Sending data to display: {:?}", data);
     unsafe {
         data = data.replace(|c: char| !c.is_ascii(), "");
@@ -453,13 +448,6 @@ fn testing_display_show(mut data: String) {
 }
 
 #[cfg(not(feature = "display"))]
-fn testing_display_show(data: String) {
+fn write_to_display(data: String) {
     println!("[DISPLAY] MOCK sending data to display: {:?}", data);
-}
-
-#[async_std::main]
-async fn main() {
-    let mgmt = Management::<NetworkComponent>::new(testing_display_show);
-
-    mgmt.run().await;
 }
