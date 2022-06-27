@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::path::Path;
 use std::thread;
 use std::time;
 
@@ -8,10 +9,14 @@ use futures::select;
 use futures::StreamExt;
 use message::control_message::MessageType;
 use message::ControlMessage;
+use p2p_network::NetworkComponent;
+use p2p_network::NetworkEvent;
 use p2p_network::NetworkLayer;
 use prost::bytes::Bytes;
 use prost::Message;
 use upgrade::UpgradeServer;
+
+pub const CURRENT_VERSION: Option<&str> = option_env!("DF_VERSION");
 
 #[cfg(feature = "display")]
 #[link(name = "display")]
@@ -40,6 +45,7 @@ impl ControlMessage {
 pub struct Management<T> {
     recv_msg_rx: mpsc::Receiver<(String, Vec<u8>)>,
     user_input_rx: mpsc::Receiver<String>,
+    event_rx: mpsc::Receiver<NetworkEvent>,
 
     autorized_senders: Vec<String>,
     aliases: HashMap<String, String>,
@@ -47,22 +53,65 @@ pub struct Management<T> {
 
     network: T,
     upgrader: UpgradeServer,
+
+    discovered_peers: Vec<String>,
+    rejected_peers: Vec<String>,
+    connected_peers: Vec<String>,
+    listening_addrs: Vec<String>,
+
+    upgrade_in_progress: bool,
+    table_mode: bool,
+    table_receiver: String,
+    table: String,
 }
 
 impl<T: NetworkLayer> Management<T> {
     pub fn new(user_input_rx: mpsc::Receiver<String>) -> Self {
-        let (recv_msg_tx, recv_msg_rx) = mpsc::channel(0);
+        // it appears there is a deadlock in here somewhere... so we need some buffer to clear it.
+        let (recv_msg_tx, recv_msg_rx) = mpsc::channel(10);
+        let (network_event_tx, network_event_rx) = mpsc::channel(10);
 
-        let network = T::init(None, recv_msg_tx);
+        let mut private_key: Option<&Path> = None;
+        let mut pk: String;
+
+        let mut iter = std::env::args().into_iter();
+        loop {
+            let arg = iter.next();
+
+            match arg {
+                None => {
+                    break;
+                }
+                Some(arg) => {
+                    if arg == "--private-key" {
+                        let n = iter.next();
+                        if n.is_some() {
+                            pk = n.unwrap();
+                            private_key = Some(Path::new(&pk));
+                        }
+                    }
+                }
+            }
+        }
+        let network = T::init(private_key, recv_msg_tx, network_event_tx);
 
         Management {
             recv_msg_rx,
             user_input_rx,
             network,
+            event_rx: network_event_rx,
             autorized_senders: vec![],
             aliases: HashMap::new(),
             alias: "".into(),
             upgrader: UpgradeServer::new(),
+            discovered_peers: vec![],
+            rejected_peers: vec![],
+            connected_peers: vec![],
+            listening_addrs: vec![],
+            upgrade_in_progress: false,
+            table_mode: false,
+            table_receiver: String::new(),
+            table: String::new(),
         }
     }
 
@@ -81,12 +130,84 @@ impl<T: NetworkLayer> Management<T> {
                 input = self.user_input_rx.select_next_some() => {
                     self.handle_user_input(input).await;
                 }
+                event = self.event_rx.select_next_some() => {
+                    self.handle_network_event(event).await;
+                }
+            }
+        }
+    }
+
+    pub async fn handle_network_event(&mut self, event: NetworkEvent) {
+        match event {
+            NetworkEvent::PeerDiscovered { peer } => {
+                if !self.discovered_peers.contains(&peer) {
+                    self.discovered_peers.push(peer);
+                }
+            }
+            NetworkEvent::ConnectionEstablished { peer } => {
+                // wait a bit for all connections to be established
+                thread::sleep(time::Duration::from_millis(500));
+
+                if self.alias != "" {
+                    self.send(ControlMessage::new(
+                        MessageType::PublishAlias,
+                        self.alias.clone(),
+                        peer.clone(),
+                    ))
+                    .await;
+                }
+
+                if let Some(current_version) = CURRENT_VERSION {
+                    self.send(ControlMessage::new(
+                        MessageType::NetworkBinaryVersion,
+                        current_version,
+                        peer.clone(),
+                    ))
+                    .await;
+                }
+
+                self.rejected_peers.retain(|p| p != &peer);
+                if !self.connected_peers.contains(&peer) {
+                    self.connected_peers.push(peer);
+                }
+            }
+            NetworkEvent::ConnectionRejected { peer } => {
+                if !self.rejected_peers.contains(&peer) {
+                    self.rejected_peers.push(peer);
+                }
+            }
+            NetworkEvent::PeerExpired { peer } => {
+                self.connected_peers.retain(|p| p != &peer);
+                self.rejected_peers.retain(|p| p != &peer);
+                self.discovered_peers.retain(|p| p != &peer);
+            }
+            NetworkEvent::NewListenAddress { addr } => {
+                if !self.listening_addrs.contains(&addr) {
+                    self.listening_addrs.push(addr);
+                }
             }
         }
     }
 
     pub async fn handle_user_input(&mut self, msg: String) {
-        println!("go user message {:?}", msg);
+        if self.table_mode {
+            if msg.is_empty() {
+                self.table_mode = false;
+                self.send(ControlMessage::new(
+                    MessageType::DisplayMessage,
+                    &self.table,
+                    &self.table_receiver,
+                ))
+                .await;
+
+                self.table_mode = false;
+                return;
+            }
+            self.table.push_str(&msg);
+            self.table.push_str("\n");
+            return;
+        }
+
         if let Some(msg) = msg.strip_prefix("send ") {
             self.send(ControlMessage::new(MessageType::DisplayMessage, msg, ""))
                 .await;
@@ -127,6 +248,7 @@ impl<T: NetworkLayer> Management<T> {
         } else if let Some(msg) = msg.strip_prefix("alias ") {
             self.send(ControlMessage::new(MessageType::PublishAlias, msg, ""))
                 .await;
+            self.alias = msg.into();
         } else if let Some(msg) = msg.strip_prefix("upgrade self ") {
             let _ = UpgradeServer::upgrade_binary(msg.into());
         } else if let Some(msg) = msg.strip_prefix("upgrade ") {
@@ -137,6 +259,32 @@ impl<T: NetworkLayer> Management<T> {
             self.upgrader.stop_serving().await;
         } else if let Some(msg) = msg.strip_prefix("serve ") {
             self.upgrader.serve(msg.into()).await;
+        } else if let Some(msg) = msg.strip_prefix("show ") {
+            match msg {
+                "alias" => {
+                    println!("[Management] show alias: {:?}", self.alias);
+                }
+                "aliases" => {
+                    println!("[Management] show aliases: {:?}", self.aliases);
+                }
+                "discovered" => {
+                    println!("[Management] show discovered: {:?}", self.discovered_peers);
+                }
+                "connected" => {
+                    println!("[Management] show connected: {:?}", self.connected_peers);
+                }
+                "rejected" => {
+                    println!("[Management] show rejected: {:?}", self.rejected_peers);
+                }
+                msg => {
+                    println!("[Management] Unknown show command: {}", msg);
+                }
+            }
+        } else if let Some(msg) = msg.strip_prefix("table ") {
+            println!("[Management] Entering table mode. Exit with double newline.");
+            self.table_mode = true;
+            self.table = String::new();
+            self.table_receiver = msg.into();
         }
     }
 
@@ -244,8 +392,44 @@ impl<T: NetworkLayer> Management<T> {
                 }
             }
             Some(MessageType::Upgrade) => {
-                println!("[Management] Got upgrade request from {}", msg.sender);
+                println!("[Management] Got upgrade from {}", msg.sender);
                 let _ = UpgradeServer::upgrade_binary(msg.payload);
+            }
+            Some(MessageType::RequestUpgrade) => {
+                println!("[Management] Got upgrade request from {}", &msg.sender);
+                if self.upgrade_in_progress {
+                    return;
+                }
+
+                self.upgrader.serve_binary_once().await;
+
+                for addr in self.listening_addrs.clone().iter() {
+                    let mut a = addr.clone();
+                    a.push_str(":");
+                    a.push_str(upgrade::UPGRADE_SERVER_PORT);
+
+                    self.send(ControlMessage::new(MessageType::Upgrade, a, &msg.sender))
+                        .await;
+                }
+            }
+            Some(MessageType::NetworkBinaryVersion) => {
+                println!("[Management] Got binary version from {}", &msg.sender);
+                if CURRENT_VERSION.is_some()
+                    && String::from(CURRENT_VERSION.unwrap()).ge(&msg.payload)
+                {
+                    return;
+                }
+                if self.upgrade_in_progress {
+                    return;
+                }
+                self.upgrade_in_progress = true;
+
+                self.send(ControlMessage::new(
+                    MessageType::RequestUpgrade,
+                    "",
+                    &msg.sender,
+                ))
+                .await;
             }
             None => {
                 println!("Could not parse message");

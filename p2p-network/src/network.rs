@@ -16,6 +16,8 @@ use libp2p::{
 };
 use std::collections::HashMap;
 
+use crate::NetworkEvent;
+
 // Fixed topic for the first PoC.
 const TOPIC: &str = "topic";
 
@@ -36,6 +38,7 @@ pub struct Network {
 
     command_rx: mpsc::Receiver<Command>,
     inbound_message_tx: mpsc::Sender<(String, Vec<u8>)>,
+    event_tx: mpsc::Sender<NetworkEvent>,
 
     whitelisted: Vec<PeerId>,
 
@@ -48,6 +51,7 @@ impl Network {
         keypair: identity::Keypair,
         command_rx: mpsc::Receiver<Command>,
         inbound_message_tx: mpsc::Sender<(String, Vec<u8>)>,
+        event_tx: mpsc::Sender<NetworkEvent>,
     ) -> Self {
         let local_peer_id = PeerId::from_public_key(&keypair.public());
         println!("Local PeerId: {}", local_peer_id);
@@ -84,6 +88,7 @@ impl Network {
             topic,
             inbound_message_tx,
             command_rx,
+            event_tx,
             whitelisted: Vec::new(),
             addresses: HashMap::new(),
         }
@@ -123,13 +128,13 @@ impl Network {
                     self.handle_swarm_event(event).await;
                 }
                 command = self.command_rx.select_next_some() => {
-                    self.handle_command(command);
+                    self.handle_command(command).await;
                 }
             }
         }
     }
 
-    fn handle_command(&mut self, command: Command) {
+    async fn handle_command(&mut self, command: Command) {
         match command {
             Command::SendMessage { message } => self.send_msg_to_swam(&message),
             Command::GetWhitelisted { tx } => tx.send(self.whitelisted.clone()).unwrap(),
@@ -140,7 +145,7 @@ impl Network {
 
                 // Maybe this is not so smart, when updating larger networks, since everyone would start
                 // to connect a new peer all at once.
-                self.dial_to_peer(peer);
+                self.dial_to_peer(peer).await;
             }
             Command::RemoveWhitelisted { peer } => {
                 self.whitelisted.retain(|p| p != &peer);
@@ -174,6 +179,13 @@ impl Network {
                 println!("Got connection established {:?}", peer_id);
                 if self.whitelisted.is_empty() || self.whitelisted.contains(&peer_id) {
                     println!("Connected to {:?}", peer_id);
+
+                    self.event_tx
+                        .send(NetworkEvent::ConnectionEstablished {
+                            peer: peer_id.to_base58(),
+                        })
+                        .await
+                        .unwrap();
                 } else {
                     // TODO: reject connection without loosing the association from peer id to address
                     // (after disconnect_peer_id, connect(peer_id) fails with no_address)
@@ -182,14 +194,27 @@ impl Network {
                         peer_id
                     );
                     let _ = self.swarm.disconnect_peer_id(peer_id);
+
+                    self.event_tx
+                        .send(NetworkEvent::ConnectionRejected {
+                            peer: peer_id.to_base58(),
+                        })
+                        .await
+                        .unwrap();
                 }
             }
             SwarmEvent::NewListenAddr { address, .. } => {
                 println!("Listening on {:?}", address);
+                self.event_tx
+                    .send(NetworkEvent::NewListenAddress {
+                        addr: address.to_string().split("/").nth(2).unwrap().into(),
+                    })
+                    .await
+                    .unwrap();
             }
             // Event issued my the Mdns protocol behaviour.
             SwarmEvent::Behaviour(Event::Mdns(ev)) => {
-                self.handle_mdns_event(ev);
+                self.handle_mdns_event(ev).await;
             }
             // Event issued my the Gossibsub protocol behaviour.
             SwarmEvent::Behaviour(Event::Gossipsub(ev)) => {
@@ -200,7 +225,7 @@ impl Network {
     }
 
     // Handle event created by our inner MDNS behaviour.
-    fn handle_mdns_event(&mut self, event: MdnsEvent) {
+    async fn handle_mdns_event(&mut self, event: MdnsEvent) {
         println!("Got mdns event");
         if let MdnsEvent::Discovered(discovered) = event {
             // let peers: HashMap<PeerId, > = discovered.map(|(peer, addr)| peer).collect();
@@ -211,18 +236,33 @@ impl Network {
             for (peer, addr) in discovered {
                 let addrs = self.addresses.entry(peer).or_default();
                 addrs.push(addr);
+                self.event_tx
+                    .send(NetworkEvent::PeerDiscovered {
+                        peer: peer.to_base58(),
+                    })
+                    .await
+                    .unwrap();
 
                 if self.whitelisted.contains(&peer) {
                     println!("Connecting to whitelisted peer {:?}", peer);
-                    self.dial_to_peer(peer);
+                    self.dial_to_peer(peer).await;
                 } else {
                     println!("Got peer not whitelisted {:?}", peer);
                 }
             }
+        } else if let MdnsEvent::Expired(expired) = event {
+            for (peer, _) in expired {
+                self.event_tx
+                    .send(NetworkEvent::PeerExpired {
+                        peer: peer.to_base58(),
+                    })
+                    .await
+                    .unwrap();
+            }
         }
     }
 
-    fn dial_to_peer(&mut self, peer: PeerId) {
+    async fn dial_to_peer(&mut self, peer: PeerId) {
         if !self.addresses.contains_key(&peer) {
             println!("[Network] Could not find addresses for {:?}", peer);
             return;
@@ -232,7 +272,14 @@ impl Network {
             .addresses(self.addresses.get(&peer).unwrap().clone())
             .build();
         match self.swarm.dial(opts) {
-            Ok(_) => {}
+            Ok(_) => {
+                self.event_tx
+                    .send(NetworkEvent::ConnectionEstablished {
+                        peer: peer.to_base58(),
+                    })
+                    .await
+                    .unwrap();
+            }
             Err(e) => {
                 println!("[Network] Got error connecting to {:?}: {:?}", peer, e);
             }

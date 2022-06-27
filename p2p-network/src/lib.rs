@@ -13,7 +13,14 @@ use libp2p::{
 };
 use network::{Command, Network};
 
-#[derive(Clone)]
+pub enum NetworkEvent {
+    ConnectionEstablished { peer: String },
+    ConnectionRejected { peer: String },
+    PeerDiscovered { peer: String },
+    PeerExpired { peer: String },
+    NewListenAddress { addr: String },
+}
+
 pub struct NetworkComponent {
     command_tx: mpsc::Sender<Command>,
     local_peer_id: PeerId,
@@ -28,7 +35,11 @@ pub trait NetworkLayer {
     ///
     /// Optionally the identity private key may be loaded from a file.
     /// It is expected that the key is an OpenSSL ed25519 private key in PEM format.
-    fn init(private_key: Option<&Path>, in_message_tx: mpsc::Sender<(String, Vec<u8>)>) -> Self;
+    fn init(
+        private_key: Option<&Path>,
+        in_message_tx: mpsc::Sender<(String, Vec<u8>)>,
+        event_tx: mpsc::Sender<NetworkEvent>,
+    ) -> Self;
 
     fn local_peer_id(&self) -> String;
 
@@ -40,7 +51,11 @@ pub trait NetworkLayer {
 
 #[async_trait]
 impl NetworkLayer for NetworkComponent {
-    fn init(private_key: Option<&Path>, in_message_tx: mpsc::Sender<(String, Vec<u8>)>) -> Self {
+    fn init(
+        private_key: Option<&Path>,
+        in_message_tx: mpsc::Sender<(String, Vec<u8>)>,
+        event_tx: mpsc::Sender<NetworkEvent>,
+    ) -> Self {
         let (command_tx, command_rx) = mpsc::channel(0);
 
         // Load an ed25519 keypair from file or generate a new one.
@@ -63,7 +78,7 @@ impl NetworkLayer for NetworkComponent {
         async_std::task::spawn(async {
             // All logic is implement in our `network` mod.
             // Refer to its docs for more info on the below method calls.
-            let mut network = Network::new(keypair, command_rx, in_message_tx).await;
+            let mut network = Network::new(keypair, command_rx, in_message_tx, event_tx).await;
             network.start_listening();
             network.subscribe();
             network.run().await
