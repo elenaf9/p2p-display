@@ -116,7 +116,7 @@ impl<T: NetworkLayer> Management<T> {
     }
 
     pub async fn run(mut self) {
-        testing_display_show("Initializing".into());
+        write_to_display("Initializing".into());
         loop {
             // `Select` is a macro that simultaneously polls items.
             select! {
@@ -346,7 +346,7 @@ impl<T: NetworkLayer> Management<T> {
 
         match MessageType::from_i32(msg.message_type) {
             Some(MessageType::DisplayMessage) => {
-                testing_display_show(msg.payload);
+                write_to_display(msg.payload);
             }
             Some(MessageType::AddWhitelistPeer) => {
                 println!("[Management] Whitelisting peer: {:?}", &msg.payload);
@@ -439,7 +439,7 @@ impl<T: NetworkLayer> Management<T> {
 }
 
 #[cfg(feature = "display")]
-fn testing_display_show(mut data: String) {
+fn write_to_display(mut data: String) {
     println!("[DISPLAY] Sending data to display: {:?}", data);
     unsafe {
         data = data.replace(|c: char| !c.is_ascii(), "");
@@ -448,6 +448,6 @@ fn testing_display_show(mut data: String) {
 }
 
 #[cfg(not(feature = "display"))]
-fn testing_display_show(data: String) {
+fn write_to_display(data: String) {
     println!("[DISPLAY] MOCK sending data to display: {:?}", data);
 }
