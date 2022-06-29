@@ -21,7 +21,6 @@ impl InputHandler {
 
 #[tauri::command]
 fn handle_input(input: String, handler: State<InputHandler>) {
-    println!("user i: {:?}", input);
     let mut user_input_tx = handler.user_input_tx.clone();
 
     tauri::async_runtime::block_on(user_input_tx.send(input)).unwrap();

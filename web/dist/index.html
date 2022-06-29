@@ -1,31 +1,160 @@
-<!DOCTYPE html>
-<html lang="en">
+<html>
 
 <head>
-  <meta charset="UTF-8" />
-  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Document</title>
+  <meta charset="utf-8" />
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <title>A/B Testing Analysis</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+
+  <link rel="stylesheet" href="https://bootswatch.com/4/cosmo/bootstrap.min.css">
+  <link rel="stylesheet" href="https://use.fontawesome.com/releases/v5.2.0/css/all.css"
+    integrity="sha384-hWVjflwFxL6sNzntih27bfxkr27PmbbK/iSvJ+a4+0owXq79v+lsFkW54bOGbiDQ" crossorigin="anonymous">
+
+  <script src="https://code.jquery.com/jquery-3.3.1.min.js"></script>
+  <script src="https://code.jquery.com/ui/1.12.1/jquery-ui.min.js"></script>
 </head>
 
 <body>
-  <h1>Digital Fax</h1>
-  <form id="form">
-    Message <input type="text" name="message"><br>
-    <input type="button" onclick="send()" value="Send">
-  </form>
-  <script>
-    // access the pre-bundled global API functions
+  <main role="main" class="container">
+    <div class="row" style="margin-top: 3em">
+      <h1 id="title" class="mr-auto"><strong>Digital Fax</strong></h1>
+    </div>
+    <hr>
+    <div class="row">
+      <div class="col">
+        <div class="card border-primary">
+          <div class="card-header">Table data</div>
+          <div class="card-body">
+            <div class="form-horizontal container">
+              <div class="form-group row">
+                <table id="settingstable" class="table table-striped table-bordered">
+                  <thead>
+                    <tr>
+                      <th contenteditable="true" class="table-input om-id"></th>
+                      <td style="text-align: center" class="add-col"><i class="fas fa-plus-circle"></i></td>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr class="tr-add-row">
+                      <td style="text-align: center" class="add-row"><i class="fas fa-plus-circle"></i>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <div class="form-group row">
+                <button class="btn btn-outline-secondary offset-lg-1 col-lg-auto" type="button" id="send" disabled>Send data</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+  <script> 
     const invoke = window.__TAURI__.invoke
 
-    function send() {
-        var x = document.getElementById("form");
-        var msg = x.elements[0].value;
-        invoke('handle_input', { input: msg })
+    $(document).on('click', 'td.add-row', () => {
+      $('.add-row').parent().before(createRow());
+      setRefreshButtonState();
+    });
+
+    $(document).on('click', 'td.remove-row', (e) => {
+      if ($(e.currentTarget).parent().parent().children().length > 1) $(e.currentTarget).parent().remove();
+      setRefreshButtonState();
+    });
+
+    $(document).on('click', 'td.add-col', () => {
+      let no = getNumberOfVersions() + 1;
+      $('.add-col').before(`<th contenteditable="true" class="table-input"></th>`);
+      // $('.add-col').before(`<th contenteditable="true" class="table-input"><span class="remove-col float-right" data-version="${no}"><i class="fas fa-minus-circle"></i></span></th>`);
+      $('.add-row').attr('colspan', no);
+      $('.remove-row').before('<td contenteditable="true" class="table-input om-id" data-version="' + no + '"></td>');
+    });
+
+    $(document).on('click', '.remove-col', (e) => {
+      let t = e.target.classList.contains('remove-col') ? $(e.target) : $(e.target).parent();
+      let no = t.data('version');
+      $(`#settingstable thead th [data-version='${no}']`).parent().remove();
+      $(`[data-version='${no}']`).remove();
+      $('.add-row').attr('colspan', getNumberOfVersions());
+    });
+
+    $(document).on('input', '.table-input', () => {
+      setRefreshButtonState();
+    });
+
+    $('#send').on('click', () => {
+        let input = "send c | 1 ";
+        for (let i = 1; i < getNumberOfVersions; i++) {
+          input += "c | 1 "
+        }
+        input += "\n";
+        $('#settingstable tr:not(:last)').each((index, value) => {
+          let col = "";
+          for (let col_pointer = 0; col_pointer < $(value).children().length - 1; col_pointer += 1) {
+            col += "| " + $(value).children().eq(col_pointer).html() + " ";
+          }
+          input += col.substr(1) + "\n";
+        });
+        console.log(input);
+
+      invoke('handle_input', { input: input })
         // `invoke` returns a Promise
         .then((res) => console.log(res))
+    });
+
+    function createRow() {
+      let row = $('<tr></tr>');
+      for (let i = 0; i < getNumberOfVersions(); i++) {
+        row.append('<td contenteditable="true" class="table-input om-id" data-version="' + i + '"></td>');
+      }
+      row.append('<td style="text-align: center" class="remove-row"><i class="fas fa-minus-circle"></i></td>');
+      return row;
     }
-  </script>
+
+    function setRefreshButtonState() {
+      let btn = $('#send');
+      if (isSettingsTableComplete()) {
+        btn.addClass('btn-outline-primary');
+        btn.removeClass('btn-outline-secondary');
+        btn.removeAttr('disabled');
+      } else {
+        btn.removeClass('btn-outline-primary');
+        btn.addClass('btn-outline-secondary');
+        btn.attr('disabled', '');
+      }
+    }
+
+    function isSettingsTableComplete() {
+      let tableComplete = true;
+      $('#settingstable>tbody>tr:not(:last)').each((index, value) => {
+        let val_children = $(value).children();
+        for (let col_pointer = 0; col_pointer < val_children.length - 1; col_pointer++) {
+          if (val_children.eq(col_pointer).html() === '') {
+            tableComplete = false;
+            val_children.eq(col_pointer).css('invalid')
+          }
+        }
+      });
+      return tableComplete;
+    }
+
+
+    /*    "MAKE MY LIFE EASIER" STUFF    */
+
+    $('#settingstable').keypress((e) => {
+      if (e.keyCode === 13) {
+        e.preventDefault();
+        if (isSettingsTableComplete()) $('#send').click();
+      }
+    });
+
+    function getNumberOfVersions() {
+      return $('#settingstable thead tr').children().length - 1;
+    }
+
+    </script>
 </body>
 
 </html>
