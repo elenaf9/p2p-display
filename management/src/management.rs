@@ -448,6 +448,7 @@ fn write_to_display(mut data: String) {
     println!("[DISPLAY] Sending data to display: {:?}", data);
     unsafe {
         data = data.replace(|c: char| !c.is_ascii(), "");
+        data.push('\0');
         toDisplay(data.as_mut_ptr().cast());
     }
 }
