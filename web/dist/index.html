@@ -85,21 +85,26 @@
     });
 
     $('#send').on('click', () => {
-        let input = "send c | 1 ";
-        for (let i = 1; i < getNumberOfVersions; i++) {
-          input += "c | 1 "
+            let input = "send l|1";
+            for (let i = 1; i < getNumberOfVersions(); i++) {
+                input += "|l|1"
         }
         input += "\n";
         $('#settingstable tr:not(:last)').each((index, value) => {
           let col = "";
           for (let col_pointer = 0; col_pointer < $(value).children().length - 1; col_pointer += 1) {
-            col += "| " + $(value).children().eq(col_pointer).html() + " ";
+                    let val = $(value).children().eq(col_pointer).text();
+                    if (!val) val = " ";
+
+                    col += "|" + val;
           }
           input += col.substr(1) + "\n";
         });
         console.log(input);
 
-      invoke('handle_input', { input: input })
+            invoke('handle_input', {
+                    input: input
+                })
         // `invoke` returns a Promise
         .then((res) => console.log(res))
     });
