@@ -9,6 +9,7 @@ scp ../digital-fax.service pi@$hostname:~
 scp ../management/arm-binary pi@$hostname:~/management
 
 ssh pi@$hostname << EOF
+openssl genpkey -algorithm ed25519 -out digital_fax_private.pem
 sudo systemctl stop digital-fax
 sudo mv ./digital-fax.service /etc/systemd/system/digital-fax.service
 sudo systemctl enable digital-fax
