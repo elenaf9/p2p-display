@@ -54,7 +54,7 @@ impl Network {
         event_tx: mpsc::Sender<NetworkEvent>,
     ) -> Self {
         let local_peer_id = PeerId::from_public_key(&keypair.public());
-        println!("Local PeerId: {}", local_peer_id);
+        println!("[Network] Local PeerId: {}", local_peer_id);
 
         // Create a transport. The transport controls **how** we sent out data to the remote peer.
         let tcp_transport = tcp::TcpConfig::new();
@@ -176,9 +176,9 @@ impl Network {
     async fn handle_swarm_event<E>(&mut self, event: SwarmEvent<Event, E>) {
         match event {
             SwarmEvent::ConnectionEstablished { peer_id, .. } => {
-                println!("Got connection established {:?}", peer_id);
+                println!("[Network] Got connection established {:?}", peer_id);
                 if self.whitelisted.is_empty() || self.whitelisted.contains(&peer_id) {
-                    println!("Connected to {:?}", peer_id);
+                    println!("[Network] Connected to {:?}", peer_id);
 
                     self.event_tx
                         .send(NetworkEvent::ConnectionEstablished {
@@ -190,7 +190,7 @@ impl Network {
                     // TODO: reject connection without loosing the association from peer id to address
                     // (after disconnect_peer_id, connect(peer_id) fails with no_address)
                     println!(
-                        "Disconnecting connection from not whitelisted peer {:?}",
+                        "[Network] Disconnecting connection from not whitelisted peer {:?}",
                         peer_id
                     );
                     let _ = self.swarm.disconnect_peer_id(peer_id);
@@ -204,7 +204,7 @@ impl Network {
                 }
             }
             SwarmEvent::NewListenAddr { address, .. } => {
-                println!("Listening on {:?}", address);
+                println!("[Network] Listening on {:?}", address);
                 self.event_tx
                     .send(NetworkEvent::NewListenAddress {
                         addr: address.to_string().split("/").nth(2).unwrap().into(),
@@ -235,7 +235,6 @@ impl Network {
 
     // Handle event created by our inner MDNS behaviour.
     async fn handle_mdns_event(&mut self, event: MdnsEvent) {
-        println!("Got mdns event");
         if let MdnsEvent::Discovered(discovered) = event {
             // let peers: HashMap<PeerId, > = discovered.map(|(peer, addr)| peer).collect();
             // We discovered new peers in the local network.
@@ -253,10 +252,10 @@ impl Network {
                     .unwrap();
 
                 if self.whitelisted.contains(&peer) {
-                    println!("Connecting to whitelisted peer {:?}", peer);
+                    println!("[Network] Connecting to whitelisted peer {:?}", peer);
                     self.dial_to_peer(peer).await;
                 } else {
-                    println!("Got peer not whitelisted {:?}", peer);
+                    println!("[Network] Got peer not whitelisted {:?}", peer);
                 }
             }
         } else if let MdnsEvent::Expired(expired) = event {
@@ -297,7 +296,6 @@ impl Network {
 
     // Handle event created by our inner GossibSub behaviour.
     async fn handle_gossisub_event(&mut self, event: GossipsubEvent) {
-        println!("Got gossipsub event");
         if let GossipsubEvent::Message {
             message:
                 GossipsubMessage {
