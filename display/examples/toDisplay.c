@@ -1,12 +1,7 @@
-﻿#include <stdio.h>
-#include <string.h>
-#include <stdlib.h>     //exit()
+﻿#include <stdlib.h>     //exit()
 #include <signal.h>     //signal()
 #include "EPD_Test.h"   //Examples
 
-int qLines;
-int qRows;
-int percentRow[];
 
 void  Handler(int signo)
 {
@@ -18,92 +13,104 @@ void  Handler(int signo)
 }
 
 /*
-int main(){
-    char str[1024] = "r|5|l|10|c|85\nT9|K.12|Mon\n08:00 -|10:00|SWP\n10:00 -|14:00|Unbenutzt\n14:00 -|16:00|Techno";
-    //char str[50] = "r|5|l|10|c|85\nT9||\n";
-    //printf("Enter a string : ");
-    //gets(str);
-    toDisplay(str);
+int main(void){
+    char myString[] = "c|10|r|20|l|70|\nl1|l2|l3\na|b|c\nd|e|f\n";
+
+    toDisplay(&myString);
+
+    char myString1[] = "c|10|r|20|l|60|l|10|\nl1|l2|l3|l4\na|b|c|d\ne|f|g|h\ni|j|k|l\n";
+
+    toDisplay(&myString1);
+
+    char myString2[] = "r|30|l|70|\nl1|l2\na|b\nc|d\n";
+
+    toDisplay(&myString2);
+
+    char myString3[] = "c|100|\nl1\na\nb\n";
+
+    toDisplay(&myString3);
+
+    printf("A %s\n",myString);
+
+    return 0;
 }
 */
 
-int toDisplay(char Text[]){
+void toDisplay(char *text)
+{   
+    initDisplay();
+
+    const int height = getAmount(text,"\n");
+
     signal(SIGINT, Handler);
-    
 
-    char multiCharList[10][50];
+    char multiList[height][1024];
 
-    int lineNr = 0;
-    char *line = strtok(Text, "\n");
-    while (line != NULL)
-    {
-        //printf("this %d %s \n",lineNr,line);
-        strcpy(multiCharList[lineNr],strdup(line));
-
+    int lineNumber = 0;
+    char *line = strtok(text, "\n");
+    while(line != NULL){
+        strcpy(multiList[lineNumber],strdup(line));
         line = strtok(NULL, "\n");
-        lineNr = lineNr + 1;
-    }
-    qLines = lineNr;
-    getPositionInfo(multiCharList[0]);
-
-    EPD_toDisplay(qLines-1,qRows,percentRow);
-
-    int b = 0;
-    for(int a = 0; a < lineNr-1; a++){
-        b = DisplayFunction(multiCharList[a+1],b*a);
-    }
-    
-    EPD_toDisplay_flush();
-    return 0;
-}
-
-void getPositionInfo(char line[]){
-
-    char mulitList[10][50];
-
-    char *token = strtok(line, "|");
-    int i = 0;
-    while (token != NULL)
-    {
-        strcpy(mulitList[i],strdup(token));
-        token = strtok(NULL, "|");
-        i = i + 1;
+        lineNumber = lineNumber + 1;
     }
 
-    printf("width: %d \n",i/2);
-    int widthL[i/2];
-    int allignment[i/2];
+    const int width = (getAmount(multiList[0],"|")/2);
+    int allignmentList[width][2];
 
-    percentRow[15];
-    qRows = i/2;
-
-    for(int a = 0; a < i; a++){
-        if(strpbrk("l", mulitList[a]) != 0){
-            allignment[a/2] = 0;
-        } else {
-            if(strpbrk("c", mulitList[a]) != 0){
-                allignment[a/2] = 1;
-            } else {
-                if(strpbrk("r", mulitList[a]) != 0){
-                    allignment[a/2] = 2;
+    for(int lineY = 0; lineY < height; lineY++){
+        int linePos = 0;
+        int startPoint = 0;
+        char *rowChar = strtok(multiList[lineY], "|");
+        while(rowChar != NULL){
+            if(lineY == 0){
+                if(strpbrk("l", rowChar) != 0){
+                    allignmentList[linePos/2][linePos%2] = 0;
                 } else {
-                    percentRow[a/2] = atoi(mulitList[a]);
+                    if(strpbrk("c", rowChar) != 0){
+                        allignmentList[linePos/2][linePos%2] = 1;
+                    } else {
+                        if(strpbrk("r", rowChar) != 0){
+                            allignmentList[linePos/2][linePos%2] = 2;
+                        } else {
+                            allignmentList[linePos/2][linePos%2] = atoi(rowChar);
+                        }
+                    }
                 }
+            } else {
+                //Print to Display
+                printMethod(width,height-1,rowChar,allignmentList[linePos][0],allignmentList[linePos][1],linePos+(lineY-1)*width);
+                drawToBuffer(width,height-1,rowChar,allignmentList[linePos][0],allignmentList[linePos][1],linePos+(lineY-1)*width,startPoint);
+                startPoint = startPoint + allignmentList[linePos][1];
             }
+        
+            rowChar = strtok(NULL, "|");
+            linePos = linePos + 1;
         }
+        printf("\n");
     }
+
+    //drawToBuffer();
+    printf("\n");
+
+    flushToDisplay();
 }
 
-int DisplayFunction(char line[], int offset){
+int getAmount(char *text, char del[]){
 
-    char *token = strtok(line, "|");
-    int i = 0;
-    while (token != NULL)
+    int count = 0;
+    const char *tmp = text;
+    while(tmp = strstr(tmp, del))
     {
-        EPD_toDisplay_draw(i+offset,token);
-        token = strtok(NULL, "|");
-        i = i + 1;
+        count++;
+        tmp++;
     }
 
-    return i;
+    return count;
+}
+
+void printMethod(int height, int width, char *text, int *allignment, int *size, int position){
+    printf("Table size %d x %d -- current word: %s --", height, width, text);
+    printf(" allignment: %d percentsize: %d position: %d",allignment,size,position);
+    printf(" postion in table y %d x %d",(position/height),(position%height));
+    printf("\n");
 }

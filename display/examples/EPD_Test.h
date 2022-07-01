@@ -37,6 +37,10 @@
 #include "Debug.h"
 #include <stdlib.h> // malloc() free()
 
-int EPD_4in2_test(void);
 
+
+int drawToBuffer(int height, int width, char *text, int *allignment, int *size, int position, int startPoint);
+int EPD_4in2_V2_test(void);
+int EPD_4in2bc_test(void);
+int EPD_4in2b_V2_test(void);
 #endif
