@@ -12,7 +12,7 @@ void  Handler(int signo)
     exit(0);
 }
 
-
+/*
 int main(void){
     char myString[] = "c|10|r|20|l|70\nl1|l2|l3\na|b|c\nd|e|f\n";
 
@@ -32,9 +32,15 @@ int main(void){
 
     printf("A %s\n",myString);
 
+    char myString4[] = "c|100\nGeschlossendasdasd5asd5asdasd3sdsadsads\n";
+
+    toDisplay(&myString4);
+
+    printf("A %s\n",myString);
+
     return 0;
 }
-
+*/
 
 void toDisplay(char *text)
 {   
@@ -80,6 +86,7 @@ void toDisplay(char *text)
                 //Print to Display
                 printMethod(width,height-1,rowChar,allignmentList[linePos][0],allignmentList[linePos][1],linePos+(lineY-1)*width);
                 drawToBuffer(width,height-1,rowChar,allignmentList[linePos][0],allignmentList[linePos][1],linePos+(lineY-1)*width,startPoint);
+                
                 startPoint = startPoint + allignmentList[linePos][1];
             }
         

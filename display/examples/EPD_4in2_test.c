@@ -87,7 +87,21 @@ int drawToBuffer(int height, int width, char *text, int *allignment, int *size, 
     //cal yPos
     int xPos = (EPD_4IN2_HEIGHT/100)*startPoint;
 
-    Paint_DrawString_EN(xPos, yPos, text, &Font16, WHITE, BLACK);
+    if(height == 1 && width == 1){
+        xPos = (EPD_4IN2_HEIGHT/2)-((strlen(text)*Font24.Width)/2);
+        if(xPos < 0){
+            xPos = 0;
+        }
+        if(strlen(text)*Font24.Width>EPD_4IN2_HEIGHT){
+            yPos = ((EPD_4IN2_WIDTH-(Font24.Height*((strlen(text)*Font24.Width/300)+1)))/2);
+        } else {
+            yPos = ((EPD_4IN2_WIDTH-Font24.Height)/2);
+        }
+        Paint_DrawString_EN(xPos, yPos, text, &Font24, WHITE, BLACK);
+    } else {
+        Paint_DrawString_EN(xPos, yPos, text, &Font16, WHITE, BLACK);
+    }
+    
 
     
     
