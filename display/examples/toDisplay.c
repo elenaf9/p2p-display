@@ -12,21 +12,21 @@ void  Handler(int signo)
     exit(0);
 }
 
-/*
+
 int main(void){
-    char myString[] = "c|10|r|20|l|70|\nl1|l2|l3\na|b|c\nd|e|f\n";
+    char myString[] = "c|10|r|20|l|70\nl1|l2|l3\na|b|c\nd|e|f\n";
 
     toDisplay(&myString);
 
-    char myString1[] = "c|10|r|20|l|60|l|10|\nl1|l2|l3|l4\na|b|c|d\ne|f|g|h\ni|j|k|l\n";
+    char myString1[] = "c|10|r|20|l|60|l|10\nl1|l2|l3|l4\na|b|c|d\ne|f|g|h\ni|j|k|l\n";
 
     toDisplay(&myString1);
 
-    char myString2[] = "r|30|l|70|\nl1|l2\na|b\nc|d\n";
+    char myString2[] = "r|30|l|70\nl1|l2\na|b\nc|d\n";
 
     toDisplay(&myString2);
 
-    char myString3[] = "c|100|\nl1\na\nb\n";
+    char myString3[] = "c|100\nl1\na\nb\n";
 
     toDisplay(&myString3);
 
@@ -34,7 +34,7 @@ int main(void){
 
     return 0;
 }
-*/
+
 
 void toDisplay(char *text)
 {   
@@ -54,7 +54,7 @@ void toDisplay(char *text)
         lineNumber = lineNumber + 1;
     }
 
-    const int width = (getAmount(multiList[0],"|")/2);
+    const int width = 1+(getAmount(multiList[0],"|")/2);
     int allignmentList[width][2];
 
     for(int lineY = 0; lineY < height; lineY++){
