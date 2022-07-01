@@ -4,11 +4,11 @@
 )]
 
 use futures::{channel::mpsc, SinkExt};
-use management::Management;
+use management::{Management, UserCommand};
 use tauri::State;
 
 struct InputHandler {
-    user_input_tx: mpsc::Sender<String>,
+    user_input_tx: mpsc::Sender<UserCommand>,
 }
 
 impl InputHandler {
@@ -22,8 +22,11 @@ impl InputHandler {
 #[tauri::command]
 fn handle_input(input: String, handler: State<InputHandler>) {
     let mut user_input_tx = handler.user_input_tx.clone();
-
-    tauri::async_runtime::block_on(user_input_tx.send(input)).unwrap();
+    let command = UserCommand::SendMsg {
+        peer: String::new(),
+        message: input
+    };
+    tauri::async_runtime::block_on(user_input_tx.send(command)).unwrap();
 }
 
 fn main() {

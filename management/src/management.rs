@@ -5,11 +5,11 @@ use std::time;
 
 use crate::upgrade;
 use futures::channel::mpsc;
+use futures::channel::oneshot;
 use futures::select;
 use futures::StreamExt;
 use message::control_message::MessageType;
 use message::ControlMessage;
-use p2p_network::NetworkComponent;
 use p2p_network::NetworkEvent;
 use p2p_network::NetworkLayer;
 use prost::bytes::Bytes;
@@ -17,6 +17,26 @@ use prost::Message;
 use upgrade::UpgradeServer;
 
 pub const CURRENT_VERSION: Option<&str> = option_env!("DF_VERSION");
+
+#[derive(Debug)]
+pub enum UserCommand {
+    SendMsg {
+        peer: String,
+        message: String
+    },
+    Whitelist(String),
+    Authorize(String),
+    Alias(String),
+    UpgradeSelf(String),
+    Upgrade(String, String),
+    Serve(String),
+    ServeStop,
+    GetAlias(oneshot::Sender<String>),
+    GetAliases(oneshot::Sender<HashMap<String, String>>),
+    GetDiscovered(oneshot::Sender<Vec<String>>),
+    GetConnected(oneshot::Sender<Vec<String>>),
+    GetRejected(oneshot::Sender<Vec<String>>)
+}
 
 #[cfg(feature = "display")]
 #[link(name = "display")]
@@ -44,7 +64,7 @@ impl ControlMessage {
 
 pub struct Management<T> {
     recv_msg_rx: mpsc::Receiver<(String, Vec<u8>)>,
-    user_input_rx: mpsc::Receiver<String>,
+    user_input_rx: mpsc::Receiver<UserCommand>,
     event_rx: mpsc::Receiver<NetworkEvent>,
 
     autorized_senders: Vec<String>,
@@ -60,13 +80,10 @@ pub struct Management<T> {
     listening_addrs: Vec<String>,
 
     upgrade_in_progress: bool,
-    table_mode: bool,
-    table_receiver: String,
-    table: String,
 }
 
 impl<T: NetworkLayer> Management<T> {
-    pub fn new(user_input_rx: mpsc::Receiver<String>) -> Self {
+    pub fn new(user_input_rx: mpsc::Receiver<UserCommand>) -> Self {
         // it appears there is a deadlock in here somewhere... so we need some buffer to clear it.
         let (recv_msg_tx, recv_msg_rx) = mpsc::channel(10);
         let (network_event_tx, network_event_rx) = mpsc::channel(10);
@@ -109,9 +126,6 @@ impl<T: NetworkLayer> Management<T> {
             connected_peers: vec![],
             listening_addrs: vec![],
             upgrade_in_progress: false,
-            table_mode: false,
-            table_receiver: String::new(),
-            table: String::new(),
         }
     }
 
@@ -128,7 +142,7 @@ impl<T: NetworkLayer> Management<T> {
                 }
                 // Poll for user input.
                 input = self.user_input_rx.select_next_some() => {
-                    self.handle_user_input(input).await;
+                    self.handle_user_command(input).await;
                 }
                 event = self.event_rx.select_next_some() => {
                     self.handle_network_event(event).await;
@@ -194,102 +208,69 @@ impl<T: NetworkLayer> Management<T> {
         }
     }
 
-    pub async fn handle_user_input(&mut self, msg: String) {
-        if self.table_mode {
-            if msg.is_empty() {
-                self.table_mode = false;
-                self.send(ControlMessage::new(
-                    MessageType::DisplayMessage,
-                    &self.table,
-                    &self.table_receiver,
-                ))
-                .await;
+    pub async fn handle_user_command(&mut self, command: UserCommand) {
+        match command {
+            UserCommand::SendMsg { peer, message } => {
+               self.send(ControlMessage::new(MessageType::DisplayMessage, message, peer)).await;
+            },
+            UserCommand::Whitelist(new_peer) => {
+                let ctrl = ControlMessage::new(MessageType::AddWhitelistPeer, new_peer.clone(), "");
+                self._handle_message(ctrl.clone()).await;
 
-                self.table_mode = false;
-                return;
-            }
-            self.table.push_str(&msg);
-            self.table.push_str("\n");
-            return;
-        }
+                // notify the old peers of the new peer
+                thread::sleep(time::Duration::from_millis(200));
+                self.send(ctrl).await;
+                thread::sleep(time::Duration::from_millis(200));
 
-        if let Some(msg) = msg.strip_prefix("send ") {
-            self.send(ControlMessage::new(MessageType::DisplayMessage, msg, ""))
-                .await;
-        } else if let Some(msg) = msg.strip_prefix("sendto ") {
-            let parts = msg.split_once(" ").unwrap();
-            self.send(ControlMessage::new(
-                MessageType::DisplayMessage,
-                parts.1,
-                parts.0,
-            ))
-            .await;
-        } else if let Some(msg) = msg.strip_prefix("whitelist ") {
-            let new_peer = msg;
-
-            let ctrl = ControlMessage::new(MessageType::AddWhitelistPeer, new_peer, "");
-            self._handle_message(ctrl.clone()).await;
-
-            // notify the old peers of the new peer
-            thread::sleep(time::Duration::from_millis(200));
-            self.send(ctrl).await;
-            thread::sleep(time::Duration::from_millis(200));
-
-            // Notify the new peer of the old whitelist
-            let list = self.network.get_whitelisted().await;
-            for peer in list {
-                self.send(ControlMessage::new(
-                    MessageType::AddWhitelistPeer,
-                    peer,
-                    new_peer,
-                ))
-                .await;
-            }
-        } else if let Some(msg) = msg.strip_prefix("authorize ") {
-            let ctrl = ControlMessage::new(MessageType::AddWhitelistSender, msg, "");
-
-            self._handle_message(ctrl.clone()).await;
-            self.send(ctrl).await;
-        } else if let Some(msg) = msg.strip_prefix("alias ") {
-            self.send(ControlMessage::new(MessageType::PublishAlias, msg, ""))
-                .await;
-            self.alias = msg.into();
-        } else if let Some(msg) = msg.strip_prefix("upgrade self ") {
-            let _ = UpgradeServer::upgrade_binary(msg.into());
-        } else if let Some(msg) = msg.strip_prefix("upgrade ") {
-            let parts = msg.split_once(" ").unwrap();
-            self.send(ControlMessage::new(MessageType::Upgrade, parts.1, parts.0))
-                .await;
-        } else if let Some(_) = msg.strip_prefix("serve stop") {
-            self.upgrader.stop_serving().await;
-        } else if let Some(msg) = msg.strip_prefix("serve ") {
-            self.upgrader.serve(msg.into()).await;
-        } else if let Some(msg) = msg.strip_prefix("show ") {
-            match msg {
-                "alias" => {
-                    println!("[Management] show alias: {:?}", self.alias);
-                }
-                "aliases" => {
-                    println!("[Management] show aliases: {:?}", self.aliases);
-                }
-                "discovered" => {
-                    println!("[Management] show discovered: {:?}", self.discovered_peers);
-                }
-                "connected" => {
-                    println!("[Management] show connected: {:?}", self.connected_peers);
-                }
-                "rejected" => {
-                    println!("[Management] show rejected: {:?}", self.rejected_peers);
-                }
-                msg => {
-                    println!("[Management] Unknown show command: {}", msg);
+                // Notify the new peer of the old whitelist
+                let list = self.network.get_whitelisted().await;
+                for peer in list {
+                    self.send(ControlMessage::new(
+                        MessageType::AddWhitelistPeer,
+                        peer,
+                        new_peer.clone(),
+                    ))
+                    .await;
                 }
             }
-        } else if let Some(msg) = msg.strip_prefix("table ") {
-            println!("[Management] Entering table mode. Exit with double newline.");
-            self.table_mode = true;
-            self.table = String::new();
-            self.table_receiver = msg.into();
+            UserCommand::Authorize(peer) => {
+                let ctrl = ControlMessage::new(MessageType::AddWhitelistSender, peer, "");
+                self._handle_message(ctrl.clone()).await;
+                self.send(ctrl).await;
+            }
+            UserCommand::Alias(alias) => {
+                self.send(ControlMessage::new(MessageType::PublishAlias, alias.clone(), ""))
+                    .await;
+                self.alias = alias.into();
+            }
+            UserCommand::UpgradeSelf(network_addr) => {
+                let _ = UpgradeServer::upgrade_binary(network_addr.into());
+            }
+            UserCommand::Upgrade(a, b) => {
+                self.send(ControlMessage::new(MessageType::Upgrade, b, a))
+                    .await;
+            }
+            UserCommand::Serve(file_path) => {
+                self.upgrader.serve(file_path.into()).await;
+            }
+            UserCommand::ServeStop => {
+                self.upgrader.stop_serving().await;
+            }
+            UserCommand::GetAlias(tx) => {
+                tx.send(self.alias.clone()).unwrap();
+            }
+            UserCommand::GetAliases(tx) => {
+                tx.send(self.aliases.clone()).unwrap();
+            }
+            UserCommand::GetDiscovered(tx) => {
+                tx.send(self.discovered_peers.clone()).unwrap();
+            }
+            UserCommand::GetConnected(tx) => {
+                tx.send(self.connected_peers.clone()).unwrap();
+            }
+            UserCommand::GetRejected(tx) => {
+                tx.send(self.rejected_peers.clone()).unwrap();
+            }
         }
     }
 

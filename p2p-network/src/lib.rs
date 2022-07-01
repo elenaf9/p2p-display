@@ -111,15 +111,23 @@ impl NetworkLayer for NetworkComponent {
     }
 
     async fn add_whitelisted(&mut self, peer: String) {
+        let peer = match PeerId::from_str(&peer) {
+            Ok(p) => p,
+            Err(_) => return,
+        };
         let command = Command::AddWhitelisted {
-            peer: PeerId::from_str(&peer).unwrap(),
+            peer,
         };
         self.command_tx.send(command).await.unwrap();
     }
 
     async fn remove_whitelisted(&mut self, peer: String) {
+        let peer = match PeerId::from_str(&peer) {
+            Ok(p) => p,
+            Err(_) => return,
+        };
         let command = Command::RemoveWhitelisted {
-            peer: PeerId::from_str(&peer).unwrap(),
+            peer,
         };
         self.command_tx.send(command).await.unwrap();
     }
