@@ -20,10 +20,7 @@ pub const CURRENT_VERSION: Option<&str> = option_env!("DF_VERSION");
 
 #[derive(Debug)]
 pub enum UserCommand {
-    SendMsg {
-        peer: String,
-        message: String
-    },
+    SendMsg { peer: String, message: String },
     Whitelist(String),
     Authorize(String),
     Alias(String),
@@ -31,11 +28,12 @@ pub enum UserCommand {
     Upgrade(String, String),
     Serve(String),
     ServeStop,
+    GetPeerId(oneshot::Sender<String>),
     GetAlias(oneshot::Sender<String>),
     GetAliases(oneshot::Sender<HashMap<String, String>>),
     GetDiscovered(oneshot::Sender<Vec<String>>),
     GetConnected(oneshot::Sender<Vec<String>>),
-    GetRejected(oneshot::Sender<Vec<String>>)
+    GetRejected(oneshot::Sender<Vec<String>>),
 }
 
 #[cfg(feature = "display")]
@@ -211,8 +209,13 @@ impl<T: NetworkLayer> Management<T> {
     pub async fn handle_user_command(&mut self, command: UserCommand) {
         match command {
             UserCommand::SendMsg { peer, message } => {
-               self.send(ControlMessage::new(MessageType::DisplayMessage, message, peer)).await;
-            },
+                self.send(ControlMessage::new(
+                    MessageType::DisplayMessage,
+                    message,
+                    peer,
+                ))
+                .await;
+            }
             UserCommand::Whitelist(new_peer) => {
                 let ctrl = ControlMessage::new(MessageType::AddWhitelistPeer, new_peer.clone(), "");
                 self._handle_message(ctrl.clone()).await;
@@ -239,8 +242,12 @@ impl<T: NetworkLayer> Management<T> {
                 self.send(ctrl).await;
             }
             UserCommand::Alias(alias) => {
-                self.send(ControlMessage::new(MessageType::PublishAlias, alias.clone(), ""))
-                    .await;
+                self.send(ControlMessage::new(
+                    MessageType::PublishAlias,
+                    alias.clone(),
+                    "",
+                ))
+                .await;
                 self.alias = alias.into();
             }
             UserCommand::UpgradeSelf(network_addr) => {
@@ -255,6 +262,9 @@ impl<T: NetworkLayer> Management<T> {
             }
             UserCommand::ServeStop => {
                 self.upgrader.stop_serving().await;
+            }
+            UserCommand::GetPeerId(tx) => {
+                tx.send(self.network.local_peer_id()).unwrap();
             }
             UserCommand::GetAlias(tx) => {
                 tx.send(self.alias.clone()).unwrap();
