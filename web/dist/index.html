@@ -41,8 +41,10 @@
                     <table id="settingstable" class="table table-striped table-bordered">
                         <thead>
                             <tr>
-                                <th contenteditable="true" class="table-input om-id"></th>
-                                <td style="text-align: center; width: 10%;" class="add-col"><i class="fas fa-plus-circle"></i></td>
+                                <th>
+                                    <input class="table-input" type="text">
+                                </th>
+                                <td style="text-align: center; width: 10%;" class="add-col align-items-center"><i class="fas fa-plus-circle"></i></td>
                             </tr>
                         </thead>
                         <tbody>
@@ -109,38 +111,47 @@
 
         $(document).on('click', 'td.add-col', () => {
             let no = getNumberOfVersions() + 1;
-            $('.add-col').before(`<th contenteditable="true" class="table-input om-id"></th>`);
-            // $('.add-col').before(`<th contenteditable="true" class="table-input"><span class="remove-col float-right" data-version="${no}"><i class="fas fa-minus-circle"></i></span></th>`);
+            $('.add-col').before(`<th class="align-items-center"><input class="table-input" type="text"><span data-version="${no}" class="remove-col float-right"><i class="fas fa-minus-circle"></i></span></th>`);
             $('.add-row').attr('colspan', no);
-            $('.remove-row').before('<td contenteditable="true" class="table-input om-id" data-version="' + no + '"></td>');
+            $('.remove-row').before('<td><input data-version="' + no + '"class="table-input" type="text"></td>');
         });
 
         $(document).on('click', '.remove-col', (e) => {
             let t = e.target.classList.contains('remove-col') ? $(e.target) : $(e.target).parent();
             let no = t.data('version');
             $(`#settingstable thead th [data-version='${no}']`).parent().remove();
-            $(`[data-version='${no}']`).remove();
+            $(`[data-version='${no}']`).parent().remove();
             $('.add-row').attr('colspan', getNumberOfVersions());
+            $('#settingstable tr:not(:last)').each((index, row) => {
+                $(row).children().each((index, child) => {
+                    $(child).children().each((i, e) => {
+                        $(e).attr('data-version', index + 1);
+                    })
+                })
+            });
         });
 
         $('#send').on('click', () => {
+            let n = getNumberOfVersions();
             let input = "send l|1";
-            for (let i = 1; i < getNumberOfVersions(); i++) {
+            for (let i = 1; i < n; i++) {
                 input += "|l|1"
             }
             input += "\n";
-            $('#settingstable tr:not(:last)').each((index, value) => {
-                let col = "";
-                for (let col_pointer = 0; col_pointer < $(value).children().length - 1; col_pointer += 1) {
-                    let val = $(value).children().eq(col_pointer).text();
-                    if (!val) val = " ";
-
-                    col += "|" + val;
+            $('#settingstable .table-input').each((index, element) => {
+                let val = element.value;
+                console.log(element, val);
+                if (index % n == 0) {
+                    input += '\n'
+                } else {
+                    input += '|'
                 }
-                input += col.substr(1) + "\n";
+                if (!val) val = " ";
+                input += val;
             });
             peer = $('#send-peer').val();
             if (!peer) peer = "";
+            console.log(input);
 
             invoke('send_message', {
                 message: input,
@@ -187,8 +198,8 @@
 
         function createRow() {
             let row = $('<tr></tr>');
-            for (let i = 0; i < getNumberOfVersions(); i++) {
-                row.append('<td contenteditable="true" class="table-input om-id" data-version="' + i + '"></td>');
+            for (let i = 1; i <= getNumberOfVersions(); i++) {
+                row.append('<td><input data-version="' + i + '" class="table-input" type="text"></td>');
             }
             row.append('<td style="text-align: center" class="remove-row"><i class="fas fa-minus-circle"></i></td>');
             return row;
@@ -208,6 +219,16 @@
             return $('#settingstable thead tr').children().length - 1;
         }
     </script>
+    <style>
+        .table-input {
+            border: none;
+            width: 90%;
+            background-color: transparent;
+        }
+        td, th {
+            margin: 0 !important;
+        }
+    </style>
 </body>
 
 </html>
