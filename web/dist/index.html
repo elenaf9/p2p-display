@@ -133,9 +133,10 @@
 
         $('#send').on('click', () => {
             let n = getNumberOfVersions();
-            let input = "send l|1";
+            let width = 100/n;
+            let input = `send l|${width}`;
             for (let i = 1; i < n; i++) {
-                input += "|l|1"
+                input += `|l|${width}`
             }
             input += "\n";
             $('#settingstable .table-input').each((index, element) => {
@@ -157,9 +158,7 @@
                 message: input,
                 peer: peer,
             })
-            .then((_) => {
-                document.getElementById("send-peer").value = "";
-            })
+            .then((_) => { })
         });
 
         $('#whitelist').on('click', () => {
