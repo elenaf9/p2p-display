@@ -14,7 +14,7 @@ use libp2p::{
     swarm::{dial_opts::DialOpts, SwarmEvent},
     tcp, yamux, Multiaddr, NetworkBehaviour, PeerId, Swarm, Transport,
 };
-use std::collections::HashMap;
+use std::{collections::HashMap, str::FromStr};
 
 use crate::NetworkEvent;
 
@@ -23,9 +23,10 @@ const TOPIC: &str = "topic";
 
 pub enum Command {
     SendMessage { message: Vec<u8> },
-    GetWhitelisted { tx: oneshot::Sender<Vec<PeerId>> },
-    AddWhitelisted { peer: PeerId },
-    RemoveWhitelisted { peer: PeerId },
+    AddAddress { address: Multiaddr, peer: String },
+    GetWhitelisted { tx: oneshot::Sender<Vec<String>> },
+    AddWhitelisted { peer: String },
+    RemoveWhitelisted { peer: String },
 }
 
 // Central structure of this application, that holds the swarm.
@@ -40,7 +41,7 @@ pub struct Network {
     inbound_message_tx: mpsc::Sender<(String, Vec<u8>)>,
     event_tx: mpsc::Sender<NetworkEvent>,
 
-    whitelisted: Vec<PeerId>,
+    whitelisted: Vec<String>,
 
     addresses: HashMap<PeerId, Vec<Multiaddr>>,
 }
@@ -139,16 +140,34 @@ impl Network {
             Command::SendMessage { message } => self.send_msg_to_swam(&message),
             Command::GetWhitelisted { tx } => tx.send(self.whitelisted.clone()).unwrap(),
             Command::AddWhitelisted { peer } => {
+                let peer_id = match PeerId::from_str(&peer) {
+                    Ok(id) => id,
+                    Err(e) => {
+                        println!("[Network] Whitelisting peer failed: invalid PeerId {} {:?}", peer, e);
+                        return
+                    }
+                };
                 if !self.whitelisted.contains(&peer) {
                     self.whitelisted.push(peer);
                 }
 
                 // Maybe this is not so smart, when updating larger networks, since everyone would start
                 // to connect a new peer all at once.
-                self.dial_to_peer(peer).await;
+                self.dial_to_peer(peer_id).await;
             }
             Command::RemoveWhitelisted { peer } => {
                 self.whitelisted.retain(|p| p != &peer);
+            }
+            Command::AddAddress { address, peer } => {
+                let peer_id = match PeerId::from_str(&peer) {
+                    Ok(id) => id,
+                    Err(e) => {
+                        println!("[Network] Adding peer address failed: invalid PeerId {} {:?}", peer, e);
+                        return
+                    }
+                };
+                let addresses = self.addresses.entry(peer_id).or_default();
+                addresses.push(address);
             }
         }
     }
@@ -177,7 +196,7 @@ impl Network {
         match event {
             SwarmEvent::ConnectionEstablished { peer_id, .. } => {
                 println!("[Network] Got connection established {:?}", peer_id);
-                if self.whitelisted.is_empty() || self.whitelisted.contains(&peer_id) {
+                if self.whitelisted.is_empty() || self.whitelisted.contains(&peer_id.to_base58()) {
                     println!("[Network] Connected to {:?}", peer_id);
 
                     self.event_tx
@@ -250,8 +269,7 @@ impl Network {
                     })
                     .await
                     .unwrap();
-
-                if self.whitelisted.contains(&peer) {
+                if self.whitelisted.contains(&peer.to_base58()) {
                     println!("[Network] Connecting to whitelisted peer {:?}", peer);
                     self.dial_to_peer(peer).await;
                 } else {
@@ -280,14 +298,7 @@ impl Network {
             .addresses(self.addresses.get(&peer).unwrap().clone())
             .build();
         match self.swarm.dial(opts) {
-            Ok(_) => {
-                self.event_tx
-                    .send(NetworkEvent::ConnectionEstablished {
-                        peer: peer.to_base58(),
-                    })
-                    .await
-                    .unwrap();
-            }
+            Ok(_) => {}
             Err(e) => {
                 println!("[Network] Got error connecting to {:?}: {:?}", peer, e);
             }

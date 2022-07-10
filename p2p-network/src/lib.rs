@@ -1,8 +1,8 @@
 mod network;
+mod lite_network;
 
-use std::{path::Path, str::FromStr};
+use std::path::Path;
 
-use async_trait::async_trait;
 use futures::{
     channel::{mpsc, oneshot},
     SinkExt,
@@ -27,8 +27,7 @@ pub struct NetworkComponent {
     local_peer_id: PeerId,
 }
 
-#[async_trait]
-pub trait NetworkLayer {
+impl NetworkComponent {
     /// Create a new network.
     ///
     /// Inbound messages from remote peers are forwarded as (sender, message) tuple
@@ -36,23 +35,7 @@ pub trait NetworkLayer {
     ///
     /// Optionally the identity private key may be loaded from a file.
     /// It is expected that the key is an OpenSSL ed25519 private key in PEM format.
-    fn init(
-        private_key: Option<&Path>,
-        in_message_tx: mpsc::Sender<(String, Vec<u8>)>,
-        event_tx: mpsc::Sender<NetworkEvent>,
-    ) -> Self;
-
-    fn local_peer_id(&self) -> String;
-
-    async fn send_message(&mut self, message: Vec<u8>);
-    async fn get_whitelisted(&mut self) -> Vec<String>;
-    async fn add_whitelisted(&mut self, peer: String);
-    async fn remove_whitelisted(&mut self, peer: String);
-}
-
-#[async_trait]
-impl NetworkLayer for NetworkComponent {
-    fn init(
+    pub fn init(
         private_key: Option<&Path>,
         in_message_tx: mpsc::Sender<(String, Vec<u8>)>,
         event_tx: mpsc::Sender<NetworkEvent>,
@@ -90,42 +73,41 @@ impl NetworkLayer for NetworkComponent {
         }
     }
 
-    fn local_peer_id(&self) -> String {
+    pub fn init_lite(
+        _private_key: Option<&Path>,
+        _in_message_tx: mpsc::Sender<(String, Vec<u8>)>,
+        _event_tx: mpsc::Sender<NetworkEvent>,
+    ) -> Self {
+        todo!();
+    }
+
+    pub fn local_peer_id(&self) -> String {
         self.local_peer_id.to_base58()
     }
 
-    async fn send_message(&mut self, message: Vec<u8>) {
+    pub async fn send_message(&mut self, message: Vec<u8>) {
         let command = Command::SendMessage { message };
         self.command_tx.send(command).await.unwrap();
     }
 
-    async fn get_whitelisted(&mut self) -> Vec<String> {
+    pub async fn get_whitelisted(&mut self) -> Vec<String> {
         let (tx, rx) = oneshot::channel();
         let command = Command::GetWhitelisted { tx };
         self.command_tx.send(command).await.unwrap();
         rx.await
             .unwrap()
             .into_iter()
-            .map(|id| id.to_base58())
             .collect()
     }
 
-    async fn add_whitelisted(&mut self, peer: String) {
-        let peer = match PeerId::from_str(&peer) {
-            Ok(p) => p,
-            Err(_) => return,
-        };
+    pub async fn add_whitelisted(&mut self, peer: String) {
         let command = Command::AddWhitelisted {
             peer,
         };
         self.command_tx.send(command).await.unwrap();
     }
 
-    async fn remove_whitelisted(&mut self, peer: String) {
-        let peer = match PeerId::from_str(&peer) {
-            Ok(p) => p,
-            Err(_) => return,
-        };
+    pub async fn remove_whitelisted(&mut self, peer: String) {
         let command = Command::RemoveWhitelisted {
             peer,
         };

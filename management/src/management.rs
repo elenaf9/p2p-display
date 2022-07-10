@@ -10,8 +10,8 @@ use futures::select;
 use futures::StreamExt;
 use message::control_message::MessageType;
 use message::ControlMessage;
+use p2p_network::NetworkComponent;
 use p2p_network::NetworkEvent;
-use p2p_network::NetworkLayer;
 use prost::bytes::Bytes;
 use prost::Message;
 use upgrade::UpgradeServer;
@@ -60,7 +60,7 @@ impl ControlMessage {
     }
 }
 
-pub struct Management<T> {
+pub struct Management {
     recv_msg_rx: mpsc::Receiver<(String, Vec<u8>)>,
     user_input_rx: mpsc::Receiver<UserCommand>,
     event_rx: mpsc::Receiver<NetworkEvent>,
@@ -69,7 +69,7 @@ pub struct Management<T> {
     aliases: HashMap<String, String>,
     alias: String,
 
-    network: T,
+    network: NetworkComponent,
     upgrader: UpgradeServer,
 
     discovered_peers: Vec<String>,
@@ -80,7 +80,7 @@ pub struct Management<T> {
     upgrade_in_progress: bool,
 }
 
-impl<T: NetworkLayer> Management<T> {
+impl Management {
     pub fn new(user_input_rx: mpsc::Receiver<UserCommand>) -> Self {
         // it appears there is a deadlock in here somewhere... so we need some buffer to clear it.
         let (recv_msg_tx, recv_msg_rx) = mpsc::channel(10);
@@ -108,7 +108,7 @@ impl<T: NetworkLayer> Management<T> {
                 }
             }
         }
-        let network = T::init(private_key, recv_msg_tx, network_event_tx);
+        let network = NetworkComponent::init(private_key, recv_msg_tx, network_event_tx);
 
         Management {
             recv_msg_rx,
