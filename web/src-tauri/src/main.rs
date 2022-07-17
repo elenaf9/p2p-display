@@ -8,7 +8,7 @@ use futures::{
     SinkExt,
 };
 use management::{Management, UserCommand};
-use tauri::State;
+use tauri::{State, Submenu, CustomMenuItem, Menu, MenuItem, WindowBuilder};
 
 struct CommandHandler {
     user_cmd_tx: mpsc::Sender<UserCommand>,
@@ -64,6 +64,7 @@ fn get_local_id(handler: State<CommandHandler>) -> String {
 
 fn main() {
     tauri::Builder::default()
+        .menu(tauri::Menu::os_default("Digital Fax"))
         .manage(CommandHandler::new())
         .invoke_handler(tauri::generate_handler![
             send_message,
