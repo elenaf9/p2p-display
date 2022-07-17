@@ -1,32 +1,3 @@
-/*****************************************************************************
-* | File      	:   EPD_4in2_test.c
-* | Author      :   Waveshare team
-* | Function    :   4.2inch e-paper test demo
-* | Info        :
-*----------------
-* |	This version:   V1.0
-* | Date        :   2019-06-13
-* | Info        :
-#
-# Permission is hereby granted, free of charge, to any person obtaining a copy
-# of this software and associated documnetation files (the "Software"), to deal
-# in the Software without restriction, including without limitation the rights
-# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-# copies of the Software, and to permit persons to  whom the Software is
-# furished to do so, subject to the following conditions:
-#
-# The above copyright notice and this permission notice shall be included in
-# all copies or substantial portions of the Software.
-#
-# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-# FITNESS OR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-# LIABILITY WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-# THE SOFTWARE.
-#
-******************************************************************************/
 #include "EPD_Test.h"
 #include "EPD_4in2.h"
 #include <string.h>
@@ -62,9 +33,11 @@ void initDisplay(void){
 
 }
 
-int drawToBuffer(int height, int width, char *text, int *allignment, int *size, int position, int startPoint)
+int drawToBuffer(int height, int width, const char *text, int *allignment, int size, int position, int startPoint, int yPos)
 {
     
+    int maxChar16 = EPD_4IN2_HEIGHT*size/100/Font16.Width;
+    int maxChar24 = EPD_4IN2_HEIGHT*size/100/Font24.Width;
 
     //set fontsize
     sFONT toDraw;
@@ -73,19 +46,14 @@ int drawToBuffer(int height, int width, char *text, int *allignment, int *size, 
     } else {
         toDraw = Font16;
     }
-	
     //cal yPos
-    int yPos;
     if(position < height){
         yPos = lineSpacing;
-    } else {
-        yPos = ((position/height)+1)*lineSpacing+Font24.Height+(position/height)*Font16.Height;
     }
-     
-    printf("yPos: %d \n",yPos);
 
     //cal yPos
     int xPos = (EPD_4IN2_HEIGHT/100)*startPoint;
+
 
     if(height == 1 && width == 1){
         xPos = (EPD_4IN2_HEIGHT/2)-((strlen(text)*Font24.Width)/2);
@@ -99,13 +67,32 @@ int drawToBuffer(int height, int width, char *text, int *allignment, int *size, 
         }
         Paint_DrawString_EN(xPos, yPos, text, &Font24, WHITE, BLACK);
     } else {
-        Paint_DrawString_EN(xPos, yPos, text, &Font16, WHITE, BLACK);
+        printf("text: %s yPos: %d \n",text,yPos);
+        if(position < height){
+            int textWidth = 1+(strlen(text)*Font24.Width)/(size*EPD_4IN2_HEIGHT/100);
+            for(int i = 0; i < textWidth; i++){
+                char *this = splitCharArray(text,(i*maxChar24),maxChar24);
+                Paint_DrawString_EN(xPos, yPos+i*Font24.Height, this, &Font24, WHITE, BLACK);
+            }
+            return yPos+(textWidth)*Font24.Height+lineSpacing;
+        } else {
+            int textWidth = 1+(strlen(text)*Font16.Width)/(size*EPD_4IN2_HEIGHT/100);
+            for(int i = 0; i < textWidth; i++){
+                char *this = splitCharArray(text,(i*maxChar16),maxChar16);
+                Paint_DrawString_EN(xPos, yPos+i*Font16.Height, this, &Font16, WHITE, BLACK);
+                
+            }
+            return yPos+(textWidth)*Font16.Height+lineSpacing;
+        }
     }
-    
+}
 
-    
-    
-    return 0;
+char *splitCharArray(char *text, int versatz, int maxLength){
+    char *returnChar = malloc(maxLength);
+    for(int i = 0; i < maxLength;i++){
+        returnChar[i] = text[i+versatz];
+    }
+    return strdup(returnChar);
 }
 
 void flushToDisplay(void){
@@ -115,7 +102,7 @@ void flushToDisplay(void){
     EPD_4IN2_Sleep();
     free(BlackImage);
     BlackImage = NULL;
-    DEV_Delay_ms(2000);//important, at least 2s
+    DEV_Delay_ms(1000);//important, at least 2s
     // close 5V
     printf("close 5V, Module enters 0 power consumption ...\r\n");
     DEV_Module_Exit();

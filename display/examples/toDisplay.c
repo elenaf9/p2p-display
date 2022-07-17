@@ -14,18 +14,19 @@ void  Handler(int signo)
 
 /*
 int main(void){
+    
     char myString[] = "c|10|r|20|l|70\nl1|l2|l3\na|b|c\nd|e|f\n";
 
     toDisplay(&myString);
-
+    
     char myString1[] = "c|10|r|20|l|60|l|10\nl1|l2|l3|l4\na|b|c|d\ne|f|g|h\ni|j|k|l\n";
 
     toDisplay(&myString1);
-
-    char myString2[] = "r|30|l|70\nl1|l2\na|b\nc|d\n";
+    
+    char myString2[] = "r|50|l|50\nUeberschrift1|GanzVielTextInEinerZeileGanzVielTextInEinerZeile\nZeile 111 ganz land|nur kurz\ndies ist echt|lange langer satz, da wir hier sind\n";
 
     toDisplay(&myString2);
-
+    
     char myString3[] = "c|100\nl1\na\nb\n";
 
     toDisplay(&myString3);
@@ -37,7 +38,7 @@ int main(void){
     toDisplay(&myString4);
 
     printf("A %s\n",myString);
-
+    
     return 0;
 }
 */
@@ -50,7 +51,7 @@ void toDisplay(char *text)
 
     signal(SIGINT, Handler);
 
-    char multiList[height][1024];
+    char multiList[height][2048];
 
     int lineNumber = 0;
     char *line = strtok(text, "\n");
@@ -62,10 +63,12 @@ void toDisplay(char *text)
 
     const int width = 1+(getAmount(multiList[0],"|")/2);
     int allignmentList[width][2];
-
+    int yMaxPos = 0;
     for(int lineY = 0; lineY < height; lineY++){
         int linePos = 0;
         int startPoint = 0;
+        int akkuYPos = 0;
+        int akkuY = 0;
         char *rowChar = strtok(multiList[lineY], "|");
         while(rowChar != NULL){
             if(lineY == 0){
@@ -84,19 +87,20 @@ void toDisplay(char *text)
                 }
             } else {
                 //Print to Display
-                printMethod(width,height-1,rowChar,allignmentList[linePos][0],allignmentList[linePos][1],linePos+(lineY-1)*width);
-                drawToBuffer(width,height-1,rowChar,allignmentList[linePos][0],allignmentList[linePos][1],linePos+(lineY-1)*width,startPoint);
+                printf("yPos: %d\n",yMaxPos);
+                akkuYPos = drawToBuffer(width,height-1,rowChar,allignmentList[linePos][0],allignmentList[linePos][1],linePos+(lineY-1)*width,startPoint, yMaxPos);
+                if(akkuYPos > akkuY){
+                    printf("Akku function: %d \n",akkuYPos);
+                    akkuY = akkuYPos;
+                }
                 
                 startPoint = startPoint + allignmentList[linePos][1];
             }
-        
             rowChar = strtok(NULL, "|");
             linePos = linePos + 1;
         }
-        printf("\n");
+        yMaxPos = akkuY;
     }
-
-    //drawToBuffer();
     printf("\n");
 
     flushToDisplay();
