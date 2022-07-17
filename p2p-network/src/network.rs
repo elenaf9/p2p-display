@@ -12,17 +12,18 @@ use libp2p::{
     mdns::{Mdns, MdnsConfig, MdnsEvent},
     mplex, noise,
     swarm::{dial_opts::DialOpts, SwarmEvent},
-    tcp, yamux, Multiaddr, NetworkBehaviour, PeerId, Swarm, Transport,
+    tcp, yamux, Multiaddr, NetworkBehaviour, PeerId, Swarm, Transport, request_response::{RequestResponse, RequestResponseConfig, RequestResponseEvent, ProtocolSupport, RequestResponseMessage},
 };
-use std::collections::HashMap;
+use std::{collections::{HashMap, HashSet}, iter};
 
-use crate::NetworkEvent;
+use crate::{NetworkEvent, protocol::{Codec, Protocol, Ack}};
 
 // Fixed topic for the first PoC.
 const TOPIC: &str = "topic";
 
 pub enum Command {
-    SendMessage { message: Vec<u8> },
+    PublishMessage { message: Vec<u8> },
+    SendMessage { peer: PeerId, message: Vec<u8> },
     GetWhitelisted { tx: oneshot::Sender<Vec<PeerId>> },
     AddWhitelisted { peer: PeerId },
     RemoveWhitelisted { peer: PeerId },
@@ -136,7 +137,8 @@ impl Network {
 
     async fn handle_command(&mut self, command: Command) {
         match command {
-            Command::SendMessage { message } => self.send_msg_to_swam(&message),
+            Command::PublishMessage { message } => self.publish_msg_to_swarm(&message),
+            Command::SendMessage { peer, message }  => self.send_message(&peer, message),
             Command::GetWhitelisted { tx } => tx.send(self.whitelisted.clone()).unwrap(),
             Command::AddWhitelisted { peer } => {
                 if !self.whitelisted.contains(&peer) {
@@ -153,9 +155,8 @@ impl Network {
         }
     }
 
-    // Handle input from the user.
-    // This publishes the input as a message in the gossibsub network
-    fn send_msg_to_swam(&mut self, input: &[u8]) {
+    // Publish the message in the gossipsub network
+    fn publish_msg_to_swarm(&mut self, input: &[u8]) {
         match self
             .swarm
             .behaviour_mut()
@@ -168,6 +169,11 @@ impl Network {
                 println!("[Network] Error sending to swarm: {:?}", e);
             }
         }
+    }
+    
+    // Send a message to a single peer.
+    fn send_message(&mut self, peer: &PeerId, data: Vec<u8>) {
+        let _ = self.swarm.behaviour_mut().request_response.send_request(peer, data);
     }
 
     // Handle an event on our swarm.
@@ -216,9 +222,13 @@ impl Network {
             SwarmEvent::Behaviour(Event::Mdns(ev)) => {
                 self.handle_mdns_event(ev).await;
             }
-            // Event issued my the Gossibsub protocol behaviour.
+            // Event issued my the Gossisub protocol behaviour.
             SwarmEvent::Behaviour(Event::Gossipsub(ev)) => {
                 self.handle_gossisub_event(ev).await;
+            }
+            // Event issued my the Request Response protocol behaviour.
+            SwarmEvent::Behaviour(Event::ReqRes(ev)) => {
+                self.handle_req_res_event(ev).await;
             }
             SwarmEvent::ConnectionClosed { peer_id, .. } => {
                 println!("[Network] Connection to {:?} closed.", peer_id);
@@ -236,14 +246,17 @@ impl Network {
     // Handle event created by our inner MDNS behaviour.
     async fn handle_mdns_event(&mut self, event: MdnsEvent) {
         if let MdnsEvent::Discovered(discovered) = event {
-            // let peers: HashMap<PeerId, > = discovered.map(|(peer, addr)| peer).collect();
             // We discovered new peers in the local network.
             // Dial each peer. Once the connection is established the gossibsub protocol will make
             // the peers exchange what topics they are subscribed to.
             // When publishing to a topic, we thus then know whom to send the message to.
+            let mut distinct_peers = HashSet::new();
             for (peer, addr) in discovered {
+                distinct_peers.insert(peer);
                 let addrs = self.addresses.entry(peer).or_default();
                 addrs.push(addr);
+            }
+            for peer in distinct_peers {
                 self.event_tx
                     .send(NetworkEvent::PeerDiscovered {
                         peer: peer.to_base58(),
@@ -312,6 +325,15 @@ impl Network {
                 .unwrap();
         }
     }
+
+    // Handle event created by our inner Request Response behaviour.
+    async fn handle_req_res_event(&mut self, event: RequestResponseEvent<Vec<u8>, Ack>) {
+        if let RequestResponseEvent::Message { peer, message:
+        RequestResponseMessage::Request { request_id: _, request, channel } } = event {
+            let _ = self.swarm.behaviour_mut().request_response.send_response(channel, Ack);
+            self.inbound_message_tx.send((peer.to_base58(), request)).await.unwrap();
+        }
+    }
 }
 
 // Custom `NetworkBehaviour`.
@@ -337,6 +359,9 @@ struct Behaviour {
     // Gossisub PubSub protocol.
     // Allows publishing messages in a network to a cerain topic.
     gossipsub: Gossipsub,
+    // Request Response protocol.
+    // Allows direct message to remote peers.
+    request_response: RequestResponse<Codec>,
     // Multicast DNS protocol for peer discovery in the local network.
     mdns: Mdns,
 }
@@ -349,8 +374,10 @@ impl Behaviour {
             GossipsubConfig::default(),
         )
         .unwrap();
+        let cfg = RequestResponseConfig::default();
+        let request_response = RequestResponse::new(Codec, iter::once((Protocol{}, ProtocolSupport::Full)), cfg);
         let mdns = Mdns::new(MdnsConfig::default()).await.unwrap();
-        let behaviour = Behaviour { gossipsub, mdns };
+        let behaviour = Behaviour { gossipsub, mdns, request_response };
         Ok(behaviour)
     }
 }
@@ -360,6 +387,7 @@ impl Behaviour {
 enum Event {
     Mdns(MdnsEvent),
     Gossipsub(GossipsubEvent),
+    ReqRes(RequestResponseEvent<Vec<u8>, Ack>)
 }
 
 impl From<MdnsEvent> for Event {
@@ -371,5 +399,11 @@ impl From<MdnsEvent> for Event {
 impl From<GossipsubEvent> for Event {
     fn from(ev: GossipsubEvent) -> Self {
         Event::Gossipsub(ev)
+    }
+}
+
+impl From<RequestResponseEvent<Vec<u8>, Ack>> for Event {
+    fn from(ev: RequestResponseEvent<Vec<u8>, Ack>) -> Self {
+        Event::ReqRes(ev)
     }
 }

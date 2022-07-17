@@ -1,4 +1,5 @@
 mod network;
+mod protocol;
 
 use std::{path::Path, str::FromStr};
 
@@ -44,7 +45,8 @@ pub trait NetworkLayer {
 
     fn local_peer_id(&self) -> String;
 
-    async fn send_message(&mut self, message: Vec<u8>);
+    async fn publish_message(&mut self, message: Vec<u8>);
+    async fn send_message(&mut self, peer: String, message: Vec<u8>);
     async fn get_whitelisted(&mut self) -> Vec<String>;
     async fn add_whitelisted(&mut self, peer: String);
     async fn remove_whitelisted(&mut self, peer: String);
@@ -94,8 +96,17 @@ impl NetworkLayer for NetworkComponent {
         self.local_peer_id.to_base58()
     }
 
-    async fn send_message(&mut self, message: Vec<u8>) {
-        let command = Command::SendMessage { message };
+    async fn publish_message(&mut self, message: Vec<u8>) {
+        let command = Command::PublishMessage { message };
+        self.command_tx.send(command).await.unwrap();
+    }
+
+    async fn send_message(&mut self, peer: String, message: Vec<u8>) {
+        let peer = match PeerId::from_str(&peer) {
+            Ok(p) => p,
+            Err(_) => return,
+        };
+        let command = Command::SendMessage { peer, message };
         self.command_tx.send(command).await.unwrap();
     }
 
@@ -115,9 +126,7 @@ impl NetworkLayer for NetworkComponent {
             Ok(p) => p,
             Err(_) => return,
         };
-        let command = Command::AddWhitelisted {
-            peer,
-        };
+        let command = Command::AddWhitelisted { peer };
         self.command_tx.send(command).await.unwrap();
     }
 
@@ -126,9 +135,7 @@ impl NetworkLayer for NetworkComponent {
             Ok(p) => p,
             Err(_) => return,
         };
-        let command = Command::RemoveWhitelisted {
-            peer,
-        };
+        let command = Command::RemoveWhitelisted { peer };
         self.command_tx.send(command).await.unwrap();
     }
 }

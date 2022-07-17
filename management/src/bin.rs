@@ -6,7 +6,7 @@ use futures::{
 use management::{Management, UserCommand};
 
 struct Table {
-    peer: String,
+    peer: Option<String>,
     message: String,
 }
 
@@ -34,7 +34,7 @@ async fn handle_user_input(
     if let Some(msg) = msg.strip_prefix("table ") {
         println!("[Management] Entering table mode. Exit with double newline.");
         let _ = table.insert(Table {
-            peer: msg.into(),
+            peer: (!msg.is_empty()).then(|| msg.into()),
             message: String::new(),
         });
         return;
@@ -43,13 +43,13 @@ async fn handle_user_input(
     let mut res_fut = None;
     let command = if let Some(msg) = msg.strip_prefix("send ") {
         UserCommand::SendMsg {
-            peer: String::new(),
+            peer: None,
             message: msg.into(),
         }
     } else if let Some(msg) = msg.strip_prefix("sendto ") {
         let parts = msg.split_once(" ").unwrap();
         UserCommand::SendMsg {
-            peer: parts.0.into(),
+            peer: Some(parts.0.into()),
             message: parts.1.into(),
         }
     } else if let Some(msg) = msg.strip_prefix("whitelist ") {

@@ -3,6 +3,19 @@ syntax = "proto3";
 package management.control_message;
 
 message ControlMessage {
+
+    message Alias {
+        string peer = 1;
+        string alias = 2;
+    }
+
+    message NetworkState {
+        repeated string whitelisted = 1;
+        repeated string connected = 2;
+        repeated string whitelisted_sender = 3;
+        repeated Alias aliases = 4;
+    }
+
     enum MessageType {
         DISPLAY_MESSAGE = 0;
         
@@ -16,14 +29,22 @@ message ControlMessage {
 
         UPGRADE = 5;
         REQUEST_UPGRADE = 6;
+
+        PEER_CONNECTED = 8;
+        PEER_DISCONNECTED = 9;
+
+        REQUEST_MESSAGE = 10;
+        STORE_MESSAGE = 11;
+
+        STATE = 12;
     }  
 
     // header
     MessageType messageType = 1;
-    string receiver = 2;
-    string sender = 3;
 
     // payload
     string payload = 4;
+
+    optional NetworkState state = 5;
 }
 

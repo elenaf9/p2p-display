@@ -23,7 +23,7 @@ impl CommandHandler {
 }
 
 #[tauri::command]
-fn send_message(message: String, peer: String, handler: State<CommandHandler>) {
+fn publish_message(message: String, peer: String, handler: State<CommandHandler>) {
     let mut user_cmd_tx = handler.user_cmd_tx.clone();
     let command = UserCommand::SendMsg { peer, message };
     tauri::async_runtime::block_on(user_cmd_tx.send(command)).unwrap();
@@ -67,7 +67,7 @@ fn main() {
         .menu(tauri::Menu::os_default("Digital Fax"))
         .manage(CommandHandler::new())
         .invoke_handler(tauri::generate_handler![
-            send_message,
+            publish_message,
             whitelist,
             authorize,
             get_local_id,

@@ -154,7 +154,7 @@
             if (!peer) peer = "";
             console.log(input);
 
-            invoke('send_message', {
+            invoke('publish_message', {
                 message: input,
                 peer: peer,
             })
