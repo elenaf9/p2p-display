@@ -1,5 +1,5 @@
 use crate::dht::Dht;
-use crate::protocol::{Alias, ControlMessage, MessageType, NetworkState};
+use crate::protocol::{Alias, ControlMessage, MessageType, NetworkState, StoreMessage};
 use crate::upgrade;
 use futures::channel::mpsc;
 use futures::channel::oneshot;
@@ -45,7 +45,7 @@ extern "C" {
 }
 
 pub struct Management<T> {
-    recv_msg_rx: mpsc::Receiver<(String, Vec<u8>)>,
+    recv_msg_rx: mpsc::Receiver<(String, Vec<u8>, bool)>,
     user_input_rx: mpsc::Receiver<UserCommand>,
     event_rx: mpsc::Receiver<NetworkEvent>,
 
@@ -126,8 +126,8 @@ impl<T: NetworkLayer> Management<T> {
                 // Poll the swarm for events.
                 // Even if we would not care about the event, we have to poll the
                 // swarm for it to make any progress.
-                (sender, message) = self.recv_msg_rx.select_next_some() => {
-                    self.network_receive(sender, &message).await;
+                (sender, message, broadcasted) = self.recv_msg_rx.select_next_some() => {
+                    self.network_receive(sender, &message, broadcasted).await;
                 }
                 // Poll for user input.
                 input = self.user_input_rx.next() => {
@@ -157,7 +157,9 @@ impl<T: NetworkLayer> Management<T> {
                 // wait a bit for all connections to be established
                 thread::sleep(time::Duration::from_millis(500));
 
-                if self.connected_peers.is_empty() {
+                if self.connected_peers.is_empty()
+                    && self.network.get_whitelisted().await.is_empty()
+                {
                     // Connected to first peer in the network.
                     self.send(
                         ControlMessage::new(MessageType::PeerConnected, self.local_id.clone()),
@@ -194,6 +196,12 @@ impl<T: NetworkLayer> Management<T> {
                 }
             }
             NetworkEvent::ConnectionClosed { peer } => {
+                if self.dht.get_online_peers().contains(&peer) {
+                    let message = ControlMessage::new(MessageType::PeerDisconnected, peer.clone());
+                    self.send(message.clone(), None).await;
+                    self._handle_message(self.local_id.clone(), message, false)
+                        .await;
+                }
                 self.connected_peers.retain(|p| p != &peer);
                 self.rejected_peers.retain(|p| p != &peer);
                 self.discovered_peers.retain(|p| p != &peer);
@@ -232,20 +240,27 @@ impl<T: NetworkLayer> Management<T> {
                         return;
                     }
                 };
+                self.send(
+                    ControlMessage::new(MessageType::DisplayMessage, message.clone()),
+                    Some(peer.clone()),
+                )
+                .await;
                 for closest in self.dht.get_closest_peers(&peer) {
-                    if closest == peer {
-                        self.send(
-                            ControlMessage::new(MessageType::DisplayMessage, message.clone()),
-                            Some(peer.clone()),
-                        )
-                        .await;
-                    } else if closest == self.local_id {
+                    if closest == self.local_id {
                         println!("[Management] Storing message for {:?}", peer);
                         self.dht.store(peer.clone(), message.clone());
                     } else {
                         self.send(
-                            ControlMessage::new(MessageType::StoreMessage, message.clone()),
-                            Some(peer.clone()),
+                            ControlMessage {
+                                message_type: MessageType::StoreMessage as i32,
+                                state: None,
+                                message: Some(StoreMessage {
+                                    receiver: Some(peer.clone()),
+                                    data: message.clone(),
+                                }),
+                                payload: String::new(),
+                            },
+                            Some(closest),
                         )
                         .await;
                     }
@@ -260,7 +275,7 @@ impl<T: NetworkLayer> Management<T> {
             }
             UserCommand::Authorize(peer) => {
                 let ctrl = ControlMessage::new(MessageType::AddWhitelistSender, peer);
-                self._handle_message(self.local_id.clone(), ctrl.clone())
+                self._handle_message(self.local_id.clone(), ctrl.clone(), false)
                     .await;
                 self.send(ctrl, None).await;
             }
@@ -318,31 +333,20 @@ impl<T: NetworkLayer> Management<T> {
 
     pub async fn whitelist_peer(&mut self, new_peer: String) {
         let ctrl = ControlMessage::new(MessageType::AddWhitelistPeer, new_peer.clone());
-        self._handle_message(self.local_id.clone(), ctrl.clone())
+        self._handle_message(self.local_id.clone(), ctrl.clone(), false)
             .await;
 
         // notify the old peers of the new peer
         thread::sleep(time::Duration::from_millis(200));
         self.send(ctrl, None).await;
         thread::sleep(time::Duration::from_millis(200));
-        self._handle_message(
-            new_peer.clone(),
-            ControlMessage::new(MessageType::NetworkSolicitation, ""),
-        )
-        .await;
-    }
-
-    // Handle an incoming message as as base64-encoded string (for testing).
-    pub async fn receive(&mut self, sender: String, msg: String) {
-        let bytes = base64::decode(msg).unwrap();
-        self.network_receive(sender, &bytes).await;
     }
 
     // Receive data from the network.
-    pub async fn network_receive(&mut self, sender: String, data: &[u8]) {
+    pub async fn network_receive(&mut self, sender: String, data: &[u8], broadcasted: bool) {
         let bytes = std::boxed::Box::from(data);
         let decoded = ControlMessage::decode(Bytes::from(bytes)).unwrap();
-        self._handle_message(sender, decoded).await;
+        self._handle_message(sender, decoded, broadcasted).await;
     }
 
     // Send a ControlMessage as a base64 encoded string to the network layer.
@@ -367,7 +371,7 @@ impl<T: NetworkLayer> Management<T> {
         return self.aliases.get(&id).unwrap_or(&id).clone();
     }
 
-    async fn _handle_message(&mut self, sender: String, msg: ControlMessage) {
+    async fn _handle_message(&mut self, sender: String, msg: ControlMessage, broadcasted: bool) {
         println!(
             "[Management] Got message of type {:?} from {:?}",
             MessageType::from_i32(msg.message_type).unwrap(),
@@ -375,13 +379,19 @@ impl<T: NetworkLayer> Management<T> {
         );
 
         // return if there are authorized senders and the message sender is not one of them
-        if !self.authorized_senders.is_empty() && !self.authorized_senders.contains(&sender) {
+        if !self.authorized_senders.is_empty()
+            && sender != self.local_id
+            && !self.authorized_senders.contains(&sender)
+        {
             println!("[Management] Unauthorized sender: {:?}", msg);
             return;
         }
 
         match MessageType::from_i32(msg.message_type) {
             Some(MessageType::DisplayMessage) => {
+                if broadcasted {
+                    self.dht.store_broadcast_content(msg.payload.clone());
+                }
                 write_to_display(msg.payload);
             }
             Some(MessageType::AddWhitelistPeer) => {
@@ -420,7 +430,7 @@ impl<T: NetworkLayer> Management<T> {
                     .into_iter()
                     .map(|(peer, alias)| Alias { peer, alias })
                     .collect();
-                let connected = self.dht.get_peers();
+                let connected = self.dht.get_online_peers().clone();
                 let whitelisted = self.network.get_whitelisted().await;
                 let whitelisted_sender = self.authorized_senders.clone();
                 self.send(
@@ -432,6 +442,7 @@ impl<T: NetworkLayer> Management<T> {
                             whitelisted_sender,
                             aliases,
                         }),
+                        message: None,
                         payload: String::new(),
                     },
                     Some(sender),
@@ -480,8 +491,44 @@ impl<T: NetworkLayer> Management<T> {
                 )
                 .await;
             }
-            Some(MessageType::PeerConnected) => self.dht.add_peer(msg.payload),
-            Some(MessageType::PeerDisconnected) => self.dht.remove_peer(&msg.payload),
+            Some(MessageType::PeerConnected) => {
+                if let Some((target, republish)) = self.dht.add_peer(msg.payload) {
+                    for (peer, data) in republish {
+                        self.send(
+                            ControlMessage {
+                                message_type: MessageType::StoreMessage as i32,
+                                state: None,
+                                message: Some(StoreMessage {
+                                    receiver: peer,
+                                    data,
+                                }),
+                                payload: String::new(),
+                            },
+                            Some(target.clone()),
+                        )
+                        .await;
+                    }
+                }
+            }
+            Some(MessageType::PeerDisconnected) => {
+                if let Some((target, republish)) = self.dht.remove_peer(&msg.payload) {
+                    for (peer, data) in republish {
+                        self.send(
+                            ControlMessage {
+                                message_type: MessageType::StoreMessage as i32,
+                                state: None,
+                                message: Some(StoreMessage {
+                                    receiver: Some(peer),
+                                    data,
+                                }),
+                                payload: String::new(),
+                            },
+                            Some(target.clone()),
+                        )
+                        .await;
+                    }
+                }
+            }
             Some(MessageType::RequestMessage) => {
                 if let Some(message) = self.dht.get_content(&sender) {
                     self.send(
@@ -491,7 +538,16 @@ impl<T: NetworkLayer> Management<T> {
                     .await;
                 }
             }
-            Some(MessageType::StoreMessage) => self.dht.store(sender, msg.payload),
+            Some(MessageType::StoreMessage) => {
+                let message = match msg.message {
+                    Some(m) => m,
+                    None => return,
+                };
+                match message.receiver {
+                    Some(r) => self.dht.store(r, message.data),
+                    None => self.dht.store_broadcast_content(message.data),
+                }
+            }
             Some(MessageType::State) => {
                 println!(
                     "[Management] Got network state from {}: {:?}",
@@ -499,7 +555,7 @@ impl<T: NetworkLayer> Management<T> {
                 );
                 let state = msg.state.unwrap();
                 for peer in state.connected {
-                    self.dht.add_peer(peer)
+                    self.dht.add_peer(peer);
                 }
                 for peer in state.whitelisted {
                     self.network.add_whitelisted(peer).await;
@@ -510,17 +566,19 @@ impl<T: NetworkLayer> Management<T> {
                 for Alias { peer, alias } in state.aliases {
                     self.aliases.insert(peer, alias);
                 }
-                if let Some(other) = self
+                if let Some(closest) = self
                     .dht
-                    .get_closest_other(&self.local_id)
+                    .get_closest_peers(&self.local_id)
                     .into_iter()
                     .next()
                 {
-                    self.send(
-                        ControlMessage::new(MessageType::RequestMessage, ""),
-                        Some(other),
-                    )
-                    .await;
+                    if closest != self.local_id {
+                        self.send(
+                            ControlMessage::new(MessageType::RequestMessage, ""),
+                            Some(closest),
+                        )
+                        .await;
+                    }
                 }
             }
             None => {

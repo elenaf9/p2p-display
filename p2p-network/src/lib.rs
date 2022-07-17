@@ -39,7 +39,7 @@ pub trait NetworkLayer {
     /// It is expected that the key is an OpenSSL ed25519 private key in PEM format.
     fn init(
         private_key: Option<&Path>,
-        in_message_tx: mpsc::Sender<(String, Vec<u8>)>,
+        in_message_tx: mpsc::Sender<(String, Vec<u8>, bool)>,
         event_tx: mpsc::Sender<NetworkEvent>,
     ) -> Self;
 
@@ -56,7 +56,7 @@ pub trait NetworkLayer {
 impl NetworkLayer for NetworkComponent {
     fn init(
         private_key: Option<&Path>,
-        in_message_tx: mpsc::Sender<(String, Vec<u8>)>,
+        in_message_tx: mpsc::Sender<(String, Vec<u8>, bool)>,
         event_tx: mpsc::Sender<NetworkEvent>,
     ) -> Self {
         let (command_tx, command_rx) = mpsc::channel(0);

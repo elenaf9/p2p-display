@@ -11,7 +11,7 @@ use libp2p::{
     identity,
     mdns::{Mdns, MdnsConfig, MdnsEvent},
     mplex, noise,
-    swarm::{dial_opts::DialOpts, SwarmEvent},
+    swarm::{dial_opts::DialOpts, SwarmEvent, DialError},
     tcp, yamux, Multiaddr, NetworkBehaviour, PeerId, Swarm, Transport, request_response::{RequestResponse, RequestResponseConfig, RequestResponseEvent, ProtocolSupport, RequestResponseMessage},
 };
 use std::{collections::{HashMap, HashSet}, iter};
@@ -38,7 +38,7 @@ pub struct Network {
     topic: IdentTopic,
 
     command_rx: mpsc::Receiver<Command>,
-    inbound_message_tx: mpsc::Sender<(String, Vec<u8>)>,
+    inbound_message_tx: mpsc::Sender<(String, Vec<u8>, bool)>,
     event_tx: mpsc::Sender<NetworkEvent>,
 
     whitelisted: Vec<PeerId>,
@@ -51,7 +51,7 @@ impl Network {
     pub async fn new(
         keypair: identity::Keypair,
         command_rx: mpsc::Receiver<Command>,
-        inbound_message_tx: mpsc::Sender<(String, Vec<u8>)>,
+        inbound_message_tx: mpsc::Sender<(String, Vec<u8>, bool)>,
         event_tx: mpsc::Sender<NetworkEvent>,
     ) -> Self {
         let local_peer_id = PeerId::from_public_key(&keypair.public());
@@ -301,6 +301,7 @@ impl Network {
                     .await
                     .unwrap();
             }
+            Err(DialError::DialPeerConditionFalse(_)) => {}
             Err(e) => {
                 println!("[Network] Got error connecting to {:?}: {:?}", peer, e);
             }
@@ -320,7 +321,7 @@ impl Network {
         } = event
         {
             self.inbound_message_tx
-                .send((source.to_base58(), data))
+                .send((source.to_base58(), data, true))
                 .await
                 .unwrap();
         }
@@ -331,7 +332,7 @@ impl Network {
         if let RequestResponseEvent::Message { peer, message:
         RequestResponseMessage::Request { request_id: _, request, channel } } = event {
             let _ = self.swarm.behaviour_mut().request_response.send_response(channel, Ack);
-            self.inbound_message_tx.send((peer.to_base58(), request)).await.unwrap();
+            self.inbound_message_tx.send((peer.to_base58(), request, false)).await.unwrap();
         }
     }
 }

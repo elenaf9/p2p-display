@@ -16,6 +16,12 @@ message ControlMessage {
         repeated Alias aliases = 4;
     }
 
+    message StoreMessage {
+        string data = 1;
+        // Receiver is none if the message is a broadcast message.
+        optional string receiver = 2;
+    }
+
     enum MessageType {
         DISPLAY_MESSAGE = 0;
         
@@ -46,5 +52,6 @@ message ControlMessage {
     string payload = 4;
 
     optional NetworkState state = 5;
+    optional StoreMessage message = 6;
 }
 
