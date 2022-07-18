@@ -22,10 +22,20 @@ impl Dht {
         }
     }
 
+    pub fn add_peer(&mut self, peer: String) {
+        if !self.online_peers.contains(&peer) {
+            self.online_peers.push(peer);
+            self.online_peers.sort();
+        }
+    }
+
     // Add peer to the list of online peers.
     // Returns list of content to be republished in a StoreMessage request.
     // Format: (request_target, Vec<(data_owner, data)>)
-    pub fn add_peer(&mut self, peer: String) -> Option<(String, Vec<(Option<String>, String)>)> {
+    pub fn on_peer_connect(
+        &mut self,
+        peer: String,
+    ) -> Option<(String, Vec<(Option<String>, String)>)> {
         let peer_index = match self.online_peers.binary_search(&peer) {
             Ok(_) => return None,
             Err(index) => index,
@@ -109,7 +119,7 @@ impl Dht {
     // Remove peer from the list of online peers.
     // Returns list of content to be republished in a StoreMessage request.
     // Format: (request_target, Vec<(data_owner, data)>)
-    pub fn remove_peer(&mut self, peer: &String) -> Option<(String, Vec<(String, String)>)> {
+    pub fn on_peer_disconnect(&mut self, peer: &String) -> Option<(String, Vec<(String, String)>)> {
         let peer_index = match self.online_peers.binary_search(peer) {
             Ok(i) => i,
             Err(_) => return None,
@@ -151,13 +161,18 @@ impl Dht {
 
     // Get the content stored for peers whose id is <= start and < end.
     pub fn get_content_between(&mut self, start: &String, end: &String) -> Vec<(String, String)> {
-        let mut keys = self.peer_content.keys().collect::<Vec<_>>();
+        let mut keys = self.peer_content.keys().cloned().collect::<Vec<_>>();
+        if keys.is_empty() {
+            return Vec::new();
+        }
         keys.sort();
-        let start = keys.partition_point(|p| p < &start);
+        let start = keys.partition_point(|p| p < start);
+        let end = keys.partition_point(|p| p <= end);
         keys.rotate_left(start);
+        let between = (end + keys.len() - start) % keys.len();
         keys.into_iter()
-            .take_while(|p| p <= &end)
-            .map(|k| (k.clone(), self.peer_content.get(k).unwrap().clone()))
+            .take(between)
+            .map(|k| (k.clone(), self.peer_content.get(&k).unwrap().clone()))
             .collect()
     }
 

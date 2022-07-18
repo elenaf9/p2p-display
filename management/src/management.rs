@@ -494,7 +494,7 @@ impl<T: NetworkLayer> Management<T> {
                 .await;
             }
             Some(MessageType::PeerConnected) => {
-                if let Some((target, republish)) = self.dht.add_peer(msg.payload) {
+                if let Some((target, republish)) = self.dht.on_peer_connect(msg.payload) {
                     println!(
                         "[Management] Republishing data to {:?}: {:?}",
                         target, republish
@@ -528,7 +528,7 @@ impl<T: NetworkLayer> Management<T> {
                     .await;
                     return;
                 }
-                if let Some((target, republish)) = self.dht.remove_peer(&msg.payload) {
+                if let Some((target, republish)) = self.dht.on_peer_disconnect(&msg.payload) {
                     println!(
                         "[Management] Republishing data to {:?}: {:?}",
                         target, republish
@@ -566,7 +566,7 @@ impl<T: NetworkLayer> Management<T> {
                 };
                 match message.receiver {
                     Some(r) => {
-                        println!("[Management] Persisting content for  {}", sender);
+                        println!("[Management] Persisting content for  {}", r);
                         self.dht.store(r, message.data)
                     }
                     None => {
