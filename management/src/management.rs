@@ -493,6 +493,10 @@ impl<T: NetworkLayer> Management<T> {
             }
             Some(MessageType::PeerConnected) => {
                 if let Some((target, republish)) = self.dht.add_peer(msg.payload) {
+                    println!(
+                        "[Management] Republishing data to {:?}: {:?}",
+                        target, republish
+                    );
                     for (peer, data) in republish {
                         self.send(
                             ControlMessage {
@@ -511,7 +515,22 @@ impl<T: NetworkLayer> Management<T> {
                 }
             }
             Some(MessageType::PeerDisconnected) => {
+                if msg.payload == self.local_id {
+                    // The network wrongly assumes us to be offline, most likely
+                    // because a connection timed out.
+                    // Inform the network that we are still online.
+                    self.send(
+                        ControlMessage::new(MessageType::PeerConnected, self.local_id.clone()),
+                        None,
+                    )
+                    .await;
+                    return;
+                }
                 if let Some((target, republish)) = self.dht.remove_peer(&msg.payload) {
+                    println!(
+                        "[Management] Republishing data to {:?}: {:?}",
+                        target, republish
+                    );
                     for (peer, data) in republish {
                         self.send(
                             ControlMessage {
@@ -544,8 +563,14 @@ impl<T: NetworkLayer> Management<T> {
                     None => return,
                 };
                 match message.receiver {
-                    Some(r) => self.dht.store(r, message.data),
-                    None => self.dht.store_broadcast_content(message.data),
+                    Some(r) => {
+                        println!("[Management] Persisting content for  {}", sender);
+                        self.dht.store(r, message.data)
+                    }
+                    None => {
+                        println!("[Management] Persisting broadcasted content",);
+                        self.dht.store_broadcast_content(message.data)
+                    }
                 }
             }
             Some(MessageType::State) => {

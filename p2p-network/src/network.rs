@@ -182,7 +182,6 @@ impl Network {
     async fn handle_swarm_event<E>(&mut self, event: SwarmEvent<Event, E>) {
         match event {
             SwarmEvent::ConnectionEstablished { peer_id, .. } => {
-                println!("[Network] Got connection established {:?}", peer_id);
                 if self.whitelisted.is_empty() || self.whitelisted.contains(&peer_id) {
                     println!("[Network] Connected to {:?}", peer_id);
 
@@ -293,14 +292,7 @@ impl Network {
             .addresses(self.addresses.get(&peer).unwrap().clone())
             .build();
         match self.swarm.dial(opts) {
-            Ok(_) => {
-                self.event_tx
-                    .send(NetworkEvent::ConnectionEstablished {
-                        peer: peer.to_base58(),
-                    })
-                    .await
-                    .unwrap();
-            }
+            Ok(_) => {}
             Err(DialError::DialPeerConditionFalse(_)) => {}
             Err(e) => {
                 println!("[Network] Got error connecting to {:?}: {:?}", peer, e);

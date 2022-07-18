@@ -23,7 +23,7 @@ impl CommandHandler {
 }
 
 #[tauri::command]
-fn publish_message(message: String, peer: String, handler: State<CommandHandler>) {
+fn publish_message(message: String, peer: Option<String>, handler: State<CommandHandler>) {
     let mut user_cmd_tx = handler.user_cmd_tx.clone();
     let command = UserCommand::SendMsg { peer, message };
     tauri::async_runtime::block_on(user_cmd_tx.send(command)).unwrap();
