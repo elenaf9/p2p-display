@@ -332,6 +332,8 @@ impl<T: NetworkLayer> Management<T> {
     }
 
     pub async fn whitelist_peer(&mut self, new_peer: String) {
+        self.network.add_whitelisted(self.local_id.clone()).await;
+
         let ctrl = ControlMessage::new(MessageType::AddWhitelistPeer, new_peer.clone());
         self._handle_message(self.local_id.clone(), ctrl.clone(), false)
             .await;
