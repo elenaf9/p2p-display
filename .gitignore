@@ -17,6 +17,12 @@ Cargo.lock
 .vscode/
 .history/
 
+# LaTeX files
+*.aux
+*.fls
+*.log
+*.fdb_latexmk
+
 # Miscellaneous
 management/arm-binary
 *.pem
