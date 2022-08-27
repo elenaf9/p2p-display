@@ -1,44 +1,46 @@
 \lstset{
+    language=c,
     morekeywords={pub, trait, fn, async},
-    language=rust,
-    basicstyle=\tiny
+    basicstyle=\footnotesize,
+    commentstyle=\color{codegreen}\textit,
 }
-
-\section{Network Component}
+\section{Network Component}\label{network}
 
 The network component is responsible for sending and receiving data within the network. 
-To begin with, it is concerned with how the iot-devices (in our case Raspberry Pis) are connected, i.e. how are packets transmitted from one node to another?
+To begin with, it is concerned with how the iot-devices (in our case Raspberry Pis) are connected, i.e. how packets are transmitted from one node to another.
 In the TCP/IP model this corresponds to the Network Access and the Internet Layer.
-We solved this by connecting the nodes in a mesh network using B.A.T.M.A.N-advanced, which is a supported kernel module in linux. 
+We solve this by connecting the nodes in a mesh network using B.A.T.M.A.N-advanced, which is a supported kernel module in linux. 
 The second major part of the network component operates on the transport and application layer and enables message propagation in the network. 
 For this, we are connecting the peers in a peer-to-peer network.
 The rationale behind this decision is that compared to a server-client model, we don't have the risk of one node being the single point of failure or a bottle neck. 
-Furthermore, if we take into consideration that we want to enable allow our system to run on battery for a long period, it is necessary that all nodes enter periodically enter deep sleep. 
-This would not be possible for a server nodes.
+Furthermore, if we take into consideration that we want to enable our system to run on battery for a long period, it is necessary that all nodes periodically enter deep sleep. 
+This would not be possible for a server node.
 
-\subsection{Mesh Network}
+\subsection{Mesh Network}\label{mesh-network}
 
 % TODO Paco
 
-\subsection{Peer-to-Peer Network}
+\subsection{Peer-to-Peer Network}\label{p2p-network}
 
-We implemented the peer-to-peer network in a separate library in rust.
+We implemented the peer-to-peer network as a separate library in rust.
 Because of this, we refer in this section to the outside application that is using it as "user". 
-In practice, the "user" is the management component described in section \label{sec:mangement}.
-The library defines the abstract interface (in rust called "trait") \verb|NetworkLayer| for the network component to hide implementation details, which allows using / switching between alternative implementations.
+In practice, the "user" is the management component described in section \ref{mangement}.
+The library defines the abstract interface (in rust called \textit{trait}) \lstinline{NetworkLayer} for the network component, shown in listing \ref{network_layer}.
+This abstraction hides implementation details and allows in the long run to switch between alternative implementations that target different systems, e.g. with OS vs bare-metal.
 
-\lstinputlisting[language=Rust, firstline=32,lastline=57,tabsize=2]{../../p2p-network/src/lib.rs}
-
-For our PoC we decided to use the rust implementation of the libp2p networking stack, which already provides a number of protocol that can be used out of the box. All of the protocols described below, namely TCP, Noise, MDNS, GossipSub and Request-Response are part of libp2p and not written by us.
+For our PoC on systems with OS we decided to use the rust implementation of the libp2p networking stack, which already provides a number of protocol that can be used out of the box. 
+All of the protocols described below, namely TCP, Noise, MDNS, GossipSub and Request-Response are part of libp2p.
 
 On the transport layer, we are using TCP together with the Noise-protocol. 
 The Noise protocol implements encryption based on the Diffie-Hellmann key-exchange which allows both, authentication of peers, and traffic encryption. 
-The authentication process results in a unique \textit{PeerId} that is derived from the public key of a peer. 
-This allows us on the application layer to trust on this \textit{PeerId} in our security mechanism, i.e. when whitelisting trusted peers.
+The secret key for authentication (\textit{identity key}) is an ed25519 key generated on init.
+The process results in a unique \textit{PeerId} that is derived from the public key of this key. 
+Instead of always generating a new identity key, we added support for  reading the key from a file so that peers can keep a static ID even if the network is shut down when they go into deep-sleep.
+On the application layer we can leverage the validity of this \textit{PeerId} to solve peer authorization, which is more challenging in networks without a central authority.
 
-However, how do we know to what address should our TCP packets be sent to?
+Another challenge of peer-to-peer networks compared to server-client architecture is peer discovery.
 For this we need to know a) what peers are part of our network, and b) what IP address and port each peer is listening on. 
-Peers listen on random ports, assigned by the OS when the peer creates a new TCP listening socket, thus addressing is dynamic and require a peer discovery mechanism. 
+Peers listen on random ports, assigned by the OS when the peer creates a new TCP listening socket, thus addressing is dynamic. 
 We do this using multicast DNS (mDNS), which is supported by the B.A.T.M.A.N.-adv mesh network.
 MDNS provides the ability to perform DNS-like operations on a network in the absence of any conventional Unicast DNS server and thus can be used to query nodes that correspond to a certain domain name.
 When a node starts, it creates a new mDNS service that listens to an UDP socket on the local network, and frequently sends DNS queries while simultaneously responding to incoming mDNS-queries of other peers.
@@ -50,9 +52,20 @@ Managing this whitelist is the responsibility of the management component.
 For the actual message propagation we support messaging the whole network as well as direct messages to just a single peer.
 All messages are byte strings. 
 It is the responsibility of the user to encode and decode messages from / to bytes.
-Messages to the whole network are realised through the \textit{GossiSub} pub-sub protocol. 
+Messages to the whole network are realised through the \textit{GossipSub} publish-subscribe (pub-sub) protocol. 
 All peers in our network are subscribed to the same (hardcoded) topic, thus when one peer publishes a message to that topic all peers receive this message. 
 In an alternative implementation this could also be implemented using UDP multicast messaging, though the unreliable nature of UDP would require additional logic to ensure that all peers actually received the message.
 Apart from that, peers can sent direct message to just a single peer in a request-response protocol, with the response being a simple \textit{ACK}.
-
 Incoming messages are bubbled up to the user through a channel as (\textit{Sender}, \textit{Message}) tuple.
+
+The network component spawns its own task (green thread) that runs the network event loop. 
+Thus none of the I/O operations are blocking the rest of the application.
+Peers do not maintain long-lived connections to all other peers in the network, but instead only to a subset that is required for sending and receiving the pub-sub message.
+After a direct message was sent to a peer, the connection gracefully closes again.
+As a result of this, a peer can not know on the network layer what (authorized) peers are in total currently participating in the network.
+Instead, the network component simply bubbles up network events about peers connecting or disconnecting.
+The management component is responsible for informing other peers about these events by publishing appropriate messages. 
+
+\begin{minipage}{.45\textwidth}
+\lstinputlisting[caption={The \lstinline{NetworkLayer} trait \label{network_layer}}]{assets/network_layer.rs}
+\end{minipage}
