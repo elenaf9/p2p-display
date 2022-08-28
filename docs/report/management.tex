@@ -21,16 +21,31 @@ Each time a peer established a connection to a new (authorized) peer, it informs
 Analogously when a peer unexpectedly disconnects from another peer it also informs the network about it\footnote{It may happen that a connection closes but the peer is still in the network, therefore if a peer receives a \textit{DISCONNECTED} message about itself it directly sends a \textit{CONNECTED} with its own ID again.}.
 
 This list serves as basis for mapping what peer stores what information.
-To catch the case of nodes unexpectedly disconnecting messages are always stored by two other peers.
-For each message that directed to a peer, the message is sent to that peer if it is online, and additionally to those two peers for storage.
+To catch the case of nodes unexpectedly disconnecting messages are always stored by two other peers (\textit{backup peers}).
+For each message that directed to a peer, the message is sent to that peer if it is online, and additionally to the backup-peers for storage.
 The two peers are selected from the list of online peers by sorting the list by \textit{PeerId} and picking the next two peers after where the target's ID is / would be in the list.
 
-% TODO: describe how re-publishing happens if peers join/ leave the network
-
-\begin{figure}
+\begin{figure}[h]
     \centering
-    \includegraphics[width=0.3\textwidth]{assets/dht.png}
+    \includegraphics[width=0.4\textwidth]{assets/dht.png}
     \caption{DHT nodes arranged by ID in a circular list. The data for a node is persisted by the two subsequent online nodes. In this example the messages for A and B are both persisted by C and D}
     \label{fig:dht}
 \end{figure}
+
+What peers serve as backup-peers for another peer obviously changes when new peers connect to the network or go offline.
+Consider the setup shown in figure \ref{fig:dht}, where node C and D are the backup-peers for both, A and B. 
+If now C would suddenly go offline, there would be only one back-up peer left, that may go offline at some point themselves. 
+We solved this by having nodes dynamically re-publish storage message when peers connect / disconnect. 
+Concretely this means that if node C would go offline, node D would be informed of this and notice (by referring to the shared list of sorted online peers) that C was backup for A and B. 
+As the second back-up node, D stores the same data and thus can send it to the next online node in the list, node E.
+D and E would then be the two new backup peers for A and B.
+For the messages of node C no new storage is necessary because D and E are already backing its data up. 
+Similar when a new node comes online it becomes a back-up node for all nodes up until the next two preceding online nodes.
+Another node that was previously backing up the data is not required to do it anymore. 
+It sends the data to the new peer for storage and clears it from its own memory.
+For instance in figure \ref{fig:dht} if node B would join the network again, it becomes a backup node for A, F and E. 
+D would now not be a backup for A anymore and C would not be one for E and F anymore. 
+C and D would both send the data of those nodes to B and themselves stop storing it.
+
+
 

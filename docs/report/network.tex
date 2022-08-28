@@ -28,6 +28,11 @@ In practice, the "user" is the management component described in section \ref{ma
 The library defines the abstract interface (in rust called \textit{trait}) \lstinline{NetworkLayer} for the network component, shown in listing \ref{network_layer}.
 This abstraction hides implementation details and allows in the long run to switch between alternative implementations that target different systems, e.g. with OS vs bare-metal.
 
+\begin{figure}
+    \centering
+    \lstinputlisting[caption={The \lstinline{NetworkLayer} trait \label{network_layer}}]{assets/network_layer.rs}
+\end{figure}
+
 For our PoC on systems with OS we decided to use the rust implementation of the libp2p networking stack, which already provides a number of protocol that can be used out of the box. 
 All of the protocols described below, namely TCP, Noise, MDNS, GossipSub and Request-Response are part of libp2p.
 
@@ -65,7 +70,3 @@ After a direct message was sent to a peer, the connection gracefully closes agai
 As a result of this, a peer can not know on the network layer what (authorized) peers are in total currently participating in the network.
 Instead, the network component simply bubbles up network events about peers connecting or disconnecting.
 The management component is responsible for informing other peers about these events by publishing appropriate messages. 
-
-\begin{minipage}{.45\textwidth}
-\lstinputlisting[caption={The \lstinline{NetworkLayer} trait \label{network_layer}}]{assets/network_layer.rs}
-\end{minipage}
